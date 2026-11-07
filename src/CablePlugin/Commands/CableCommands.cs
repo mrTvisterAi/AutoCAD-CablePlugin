@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -8,6 +7,8 @@ using Autodesk.AutoCAD.Runtime;
 using CablePlugin.Core.Models;
 using CablePlugin.Core.Services;
 using CablePlugin.Data;
+using CablePlugin.UI;
+using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace CablePlugin.Commands
 {
@@ -21,12 +22,12 @@ namespace CablePlugin.Commands
         private readonly ElectricalCalculator _electrical = new ElectricalCalculator();
 
         /// <summary>
-        /// Привязать / создать данные кабеля на выбранных полилиниях.
+        /// Привязать / создать данные кабеля на выбранных полилиниях (WPF-диалог).
         /// </summary>
         [CommandMethod("CABLEATTACH", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableAttach()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
             var db = doc.Database;
@@ -38,90 +39,68 @@ namespace CablePlugin.Commands
                 return;
             }
 
-            // Базовые параметры с командной строки (минимальный UI до появления WPF-диалога)
-            var mark = PromptString(ed, "\nМарка кабеля", "ВВГнг(А)-LS");
-            if (mark == null) return;
+            List<PipeCorrespondence> pipeTable;
+            double firstGeomLen;
 
-            var cores = PromptInt(ed, "\nКоличество жил", 3);
-            if (cores == null) return;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                pipeTable = _pipeRepo.Load(db, tr);
+                firstGeomLen = PolylineLengthHelper.GetLength(ids[0], tr);
+                tr.Commit();
+            }
 
-            var section = PromptDouble(ed, "\nСечение, мм²", 1.5);
-            if (section == null) return;
+            // Черновик линии: один сегмент с геометрической длиной первой полилинии
+            var draft = new CableLine
+            {
+                Cable = new CableInfo { Mark = "ВВГнг(А)-LS", Cores = 3, Section = 1.5, CableCount = 1 },
+                Segments = new List<CableSegment>
+                {
+                    new CableSegment { LayingMethod = "Гофра", Length = firstGeomLen, IsPipeDiameterAuto = true }
+                },
+                ReservePercent = 20,
+                ScaleFactor = 1.0,
+                RoundUpTo = 1.0,
+                GeometricLength = firstGeomLen,
+                Voltage = 380,
+                Phases = 3,
+                CosPhi = 0.85
+            };
 
-            var cableCount = PromptInt(ed, "\nКоличество кабелей в линии", 1);
-            if (cableCount == null) return;
-
-            var group = PromptString(ed, "\nГруппа (имя)", "");
-            if (group == null) return;
-
-            var from = PromptString(ed, "\nНачало линии (от)", "");
-            if (from == null) return;
-
-            var to = PromptString(ed, "\nКонец линии (до)", "");
-            if (to == null) return;
-
-            var reserve = PromptDouble(ed, "\nЗапас, %", 20);
-            if (reserve == null) return;
-
-            var addLen = PromptDouble(ed, "\nДоп. длина на опуски, м", 0);
-            if (addLen == null) return;
-
-            var scale = PromptDouble(ed, "\nМасштабный коэффициент (1.0 если чертёж в метрах)", 1.0);
-            if (scale == null) return;
-
-            // Сегменты прокладки: упрощённо один сегмент = вся длина, способ с клавиатуры
-            var method = PromptString(ed, "\nСпособ прокладки (Лоток/Гофра/Труба/Кабель-канал)", "Гофра");
-            if (method == null) return;
+            var owner = GetAcadOwnerHandle();
+            var edited = CableDialogService.EditLine(draft, pipeTable, owner);
+            if (edited == null)
+            {
+                ed.WriteMessage("\n[CablePlugin] Отменено.");
+                return;
+            }
 
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                var pipeTable = _pipeRepo.Load(db, tr);
                 var pipeSelector = new PipeSelector(pipeTable);
                 int saved = 0;
 
                 foreach (ObjectId id in ids)
                 {
                     if (!PolylineLengthHelper.IsSupportedCurve(id, tr))
-                    {
-                        ed.WriteMessage($"\nПропуск {id}: неподдерживаемый тип.");
                         continue;
-                    }
+
+                    var line = edited.Clone();
+                    line.Id = Guid.NewGuid();
 
                     double geomLen = PolylineLengthHelper.GetLength(id, tr);
+                    line.GeometricLength = geomLen;
 
-                    var line = new CableLine
+                    // Если сегмент один и длина совпадала с черновиком — подставить длину этой полилинии
+                    if (line.Segments != null && line.Segments.Count == 1)
                     {
-                        GroupName = group,
-                        From = from,
-                        To = to,
-                        Cable = new CableInfo
-                        {
-                            Mark = mark,
-                            Cores = cores.Value,
-                            Section = section.Value,
-                            CableCount = Math.Max(1, cableCount.Value)
-                        },
-                        Segments = new List<CableSegment>
-                        {
-                            new CableSegment
-                            {
-                                LayingMethod = method,
-                                Length = geomLen * (scale.Value <= 0 ? 1.0 : scale.Value),
-                                IsPipeDiameterAuto = true
-                            }
-                        },
-                        ReservePercent = reserve.Value,
-                        AdditionalLength = addLen.Value,
-                        ScaleFactor = 1.0, // длина сегмента уже с масштабом
-                        RoundUpTo = 1.0,
-                        GeometricLength = geomLen
-                    };
+                        if (Math.Abs(line.Segments[0].Length - firstGeomLen) < 1e-6 || line.Segments[0].Length <= 0)
+                            line.Segments[0].Length = geomLen * (line.ScaleFactor <= 0 ? 1.0 : line.ScaleFactor);
+                    }
 
                     pipeSelector.ApplyToLine(line);
                     LengthCalculator.Calculate(line);
                     _electrical.Calculate(line);
-
                     _lineRepo.Save(id, line, tr);
                     saved++;
 
@@ -136,12 +115,79 @@ namespace CablePlugin.Commands
         }
 
         /// <summary>
+        /// Редактирование данных кабеля через WPF-диалог.
+        /// </summary>
+        [CommandMethod("CABLEEDIT", CommandFlags.Modal | CommandFlags.UsePickSet)]
+        public void CableEdit()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            var id = SelectSingleCurve(ed, "\nВыберите линию кабеля для редактирования: ");
+            if (id.IsNull) return;
+
+            CableLine existing;
+            List<PipeCorrespondence> pipeTable;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                existing = _lineRepo.Load(id, tr);
+                pipeTable = _pipeRepo.Load(db, tr);
+
+                if (existing == null)
+                {
+                    // Нет данных — предложим создать
+                    double geomLen = PolylineLengthHelper.GetLength(id, tr);
+                    existing = new CableLine
+                    {
+                        Cable = new CableInfo { Mark = "ВВГнг(А)-LS", Cores = 3, Section = 1.5 },
+                        Segments = new List<CableSegment>
+                        {
+                            new CableSegment { LayingMethod = "Гофра", Length = geomLen, IsPipeDiameterAuto = true }
+                        },
+                        ReservePercent = 20,
+                        ScaleFactor = 1.0,
+                        RoundUpTo = 1.0,
+                        GeometricLength = geomLen
+                    };
+                }
+
+                tr.Commit();
+            }
+
+            var owner = GetAcadOwnerHandle();
+            var edited = CableDialogService.EditLine(existing, pipeTable, owner);
+            if (edited == null)
+            {
+                ed.WriteMessage("\n[CablePlugin] Отменено.");
+                return;
+            }
+
+            using (doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var pipeSelector = new PipeSelector(pipeTable);
+                pipeSelector.ApplyToLine(edited);
+                LengthCalculator.Calculate(edited);
+                _electrical.Calculate(edited);
+                _lineRepo.Save(id, edited, tr);
+                tr.Commit();
+
+                ed.WriteMessage(
+                    $"\n[CablePlugin] Сохранено: {edited.Cable?.DisplayName}, L={edited.TotalLength:0.###} м, " +
+                    $"I={edited.Current:0.##} А, ΔU={edited.VoltageDropPercent:0.##}%, АВ={edited.RecommendedBreaker}");
+            }
+        }
+
+        /// <summary>
         /// Показать данные кабеля выбранного объекта.
         /// </summary>
         [CommandMethod("CABLEINFO", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableInfo()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
             var db = doc.Database;
@@ -154,7 +200,7 @@ namespace CablePlugin.Commands
                 var line = _lineRepo.Load(id, tr);
                 if (line == null)
                 {
-                    ed.WriteMessage("\nНа объекте нет данных кабеля. Используйте CABLEATTACH.");
+                    ed.WriteMessage("\nНа объекте нет данных кабеля. Используйте CABLEATTACH или CABLEEDIT.");
                     tr.Commit();
                     return;
                 }
@@ -188,18 +234,15 @@ namespace CablePlugin.Commands
             }
         }
 
-        /// <summary>
-        /// Пересчитать длины и электрику для выбранных (или всех) линий.
-        /// </summary>
         [CommandMethod("CABLERECALC", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableRecalc()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
             var db = doc.Database;
 
-            var ids = SelectCurves(ed, "\nВыберите линии для пересчёта (Enter = отмена): ");
+            var ids = SelectCurves(ed, "\nВыберите линии для пересчёта: ");
             if (ids == null || ids.Count == 0)
             {
                 ed.WriteMessage("\nОтменено.");
@@ -218,15 +261,7 @@ namespace CablePlugin.Commands
                     var line = _lineRepo.Load(id, tr);
                     if (line == null) continue;
 
-                    // Обновить геометрическую длину, если один сегмент «авто»
-                    double geomLen = PolylineLengthHelper.GetLength(id, tr);
-                    if (line.Segments != null && line.Segments.Count == 1 && line.ScaleFactor == 1.0)
-                    {
-                        // Сохраняем пропорции только если пользователь не задавал сегменты вручную с разными длинами
-                        // Здесь просто обновляем GeometricLength; длины сегментов считаем источником истины
-                    }
-
-                    line.GeometricLength = geomLen;
+                    line.GeometricLength = PolylineLengthHelper.GetLength(id, tr);
                     pipeSelector.ApplyToLine(line);
                     LengthCalculator.Calculate(line);
                     _electrical.Calculate(line);
@@ -243,13 +278,10 @@ namespace CablePlugin.Commands
             }
         }
 
-        /// <summary>
-        /// Удалить данные кабеля с объектов.
-        /// </summary>
         [CommandMethod("CABLEREMOVE", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableRemove()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
             if (doc == null) return;
             var ed = doc.Editor;
             var db = doc.Database;
@@ -271,24 +303,19 @@ namespace CablePlugin.Commands
             }
         }
 
-        /// <summary>
-        /// Редактирование — пока через повторный ATTACH (WPF-диалог на следующем шаге).
-        /// </summary>
-        [CommandMethod("CABLEEDIT", CommandFlags.Modal | CommandFlags.UsePickSet)]
-        public void CableEdit()
-        {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var ed = doc.Editor;
-
-            ed.WriteMessage("\n[CablePlugin] CABLEEDIT: пока используйте CABLEINFO для просмотра и CABLEATTACH для перезаписи.");
-            ed.WriteMessage("\nWPF-диалог редактирования будет добавлен следующим шагом.");
-
-            // Показать info по выбранному
-            CableInfo();
-        }
-
         // ===== Helpers =====
+
+        private static IntPtr GetAcadOwnerHandle()
+        {
+            try
+            {
+                return AcApp.MainWindow.Handle;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+        }
 
         private static ObjectIdCollection SelectCurves(Editor ed, string message)
         {
@@ -323,47 +350,6 @@ namespace CablePlugin.Commands
 
             var res = ed.GetEntity(peo);
             return res.Status == PromptStatus.OK ? res.ObjectId : ObjectId.Null;
-        }
-
-        private static string PromptString(Editor ed, string message, string defaultValue)
-        {
-            var opts = new PromptStringOptions(message + (string.IsNullOrEmpty(defaultValue) ? "" : $" <{defaultValue}>"));
-            opts.AllowSpaces = true;
-            var res = ed.GetString(opts);
-            if (res.Status == PromptStatus.Cancel) return null;
-            if (res.Status != PromptStatus.OK) return defaultValue;
-            return string.IsNullOrWhiteSpace(res.StringResult) ? defaultValue : res.StringResult.Trim();
-        }
-
-        private static int? PromptInt(Editor ed, string message, int defaultValue)
-        {
-            var opts = new PromptIntegerOptions(message + $" <{defaultValue}>")
-            {
-                AllowNone = true,
-                AllowNegative = false,
-                AllowZero = false,
-                DefaultValue = defaultValue,
-                UseDefaultValue = true
-            };
-            var res = ed.GetInteger(opts);
-            if (res.Status == PromptStatus.Cancel) return null;
-            if (res.Status == PromptStatus.None) return defaultValue;
-            return res.Status == PromptStatus.OK ? res.Value : defaultValue;
-        }
-
-        private static double? PromptDouble(Editor ed, string message, double defaultValue)
-        {
-            var opts = new PromptDoubleOptions(message + $" <{defaultValue}>")
-            {
-                AllowNone = true,
-                AllowNegative = false,
-                DefaultValue = defaultValue,
-                UseDefaultValue = true
-            };
-            var res = ed.GetDouble(opts);
-            if (res.Status == PromptStatus.Cancel) return null;
-            if (res.Status == PromptStatus.None) return defaultValue;
-            return res.Status == PromptStatus.OK ? res.Value : defaultValue;
         }
     }
 }
