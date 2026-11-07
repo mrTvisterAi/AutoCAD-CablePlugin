@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(CablePlugin.Commands.ReportCommands))]
 [assembly: CommandClass(typeof(CablePlugin.Commands.SchemeCommands))]
 [assembly: CommandClass(typeof(CablePlugin.Commands.LibraryCommands))]
+[assembly: CommandClass(typeof(CablePlugin.Commands.PropertiesCommands))]
 
 namespace CablePlugin
 {
@@ -18,7 +19,8 @@ namespace CablePlugin
                 "\n[CablePlugin] Загружен." +
                 "\n  Данные: CABLEATTACH CABLEEDIT CABLEDICT CABLEINFO CABLERECALC CABLEREMOVE CABLEEXPORT" +
                 "\n  Отчёты: CABLEJOURNAL CABLEBOM CABLEPANEL" +
-                "\n  Схема/шаблоны: CABLESCHEME CABLETEMPLATE CABLELIB");
+                "\n  Схема: CABLESCHEME CABLETEMPLATE CABLELIB" +
+                "\n  Свойства: CABLEPROPS (палитра при выделении полилинии)");
         }
 
         public void Terminate()
