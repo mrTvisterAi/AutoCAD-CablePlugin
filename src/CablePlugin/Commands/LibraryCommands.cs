@@ -18,9 +18,6 @@ namespace CablePlugin.Commands
         private readonly TemplateRepository _templates = new TemplateRepository();
         private readonly BlockLibraryImporter _importer = new BlockLibraryImporter();
 
-        /// <summary>
-        /// CABLELIB — путь к библиотеке, имена блоков, импорт, список содержимого DWG.
-        /// </summary>
         [CommandMethod("CABLELIB", CommandFlags.Modal)]
         public void CableLib()
         {
@@ -44,37 +41,41 @@ namespace CablePlugin.Commands
             if (res.Status == PromptStatus.Cancel) return;
             var key = res.Status == PromptStatus.OK ? res.StringResult : "Путь";
 
-            if (key.StartsWith("Сб", StringComparison.OrdinalIgnoreCase))
+            // Точное сравнение по ключевым словам AutoCAD
+            if (IsKeyword(key, "Сброс"))
             {
                 ClearLibrary(doc, db, ed);
                 return;
             }
 
-            if (key.StartsWith("Сп", StringComparison.OrdinalIgnoreCase))
+            if (IsKeyword(key, "Список"))
             {
                 ListLibrary(db, ed);
                 return;
             }
 
-            if (key.StartsWith("Им", StringComparison.OrdinalIgnoreCase))
+            if (IsKeyword(key, "Импорт"))
             {
                 ImportNow(doc, db, ed);
                 return;
             }
 
-            if (key.StartsWith("Им", StringComparison.OrdinalIgnoreCase) || key.StartsWith("Имена", StringComparison.OrdinalIgnoreCase) || key.Equals("Имена", StringComparison.OrdinalIgnoreCase))
-            {
-                // handled below - keyword "Имена"
-            }
-
-            if (string.Equals(key, "Имена", StringComparison.OrdinalIgnoreCase) || key.StartsWith("Име", StringComparison.OrdinalIgnoreCase))
+            if (IsKeyword(key, "Имена"))
             {
                 SetNames(doc, db, ed);
                 return;
             }
 
-            // Путь по умолчанию
             SetPath(doc, db, ed);
+        }
+
+        private static bool IsKeyword(string value, string keyword)
+        {
+            if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(keyword))
+                return false;
+            return value.Equals(keyword, StringComparison.OrdinalIgnoreCase)
+                   || value.StartsWith(keyword.Substring(0, 1), StringComparison.OrdinalIgnoreCase)
+                      && keyword.StartsWith(value, StringComparison.OrdinalIgnoreCase);
         }
 
         private void SetPath(Autodesk.AutoCAD.ApplicationServices.Document doc, Database db, Editor ed)
@@ -139,7 +140,6 @@ namespace CablePlugin.Commands
 
             ed.WriteMessage("\n[CablePlugin] Библиотека сохранена: " + path);
 
-            // Показать блоки в файле
             try
             {
                 var names = _importer.ListBlockNames(path);
@@ -170,8 +170,7 @@ namespace CablePlugin.Commands
                 set.PanelBlocks = new PanelBlockTemplate();
 
             var pb = set.PanelBlocks;
-            ed.WriteMessage("\nИмена в чертеже (вставка): QF / BUS / LOAD");
-            ed.WriteMessage("\nИмена в библиотеке (источник) — Enter = как в чертеже");
+            ed.WriteMessage("\nСопоставление: имя в чертеже ← имя в библиотеке");
 
             pb.BreakerBlockName = PromptName(ed, "Блок АВ в чертеже", pb.BreakerBlockName ?? "CABLE_QF");
             pb.LibraryBreakerName = PromptName(ed, "Блок АВ в библиотеке", string.IsNullOrEmpty(pb.LibraryBreakerName) ? pb.BreakerBlockName : pb.LibraryBreakerName);
@@ -222,7 +221,6 @@ namespace CablePlugin.Commands
                 BlockLibraryImporter.ImportResult ir;
                 _importer.TryImportPanelBlocks(db, tr, pb, out ir);
                 tr.Commit();
-
                 ReportImport(ed, ir);
             }
         }
