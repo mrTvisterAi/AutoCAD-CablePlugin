@@ -113,15 +113,18 @@ namespace CablePlugin.Tests
             var electrical = new ElectricalCalculator();
             electrical.Calculate(line);
 
-            Assert.Equal(25, line.Segments[0].PipeDiameter); // FRLS 3х1.5 → 25
-            Assert.Equal(33.5, line.TotalLength);            // 30 * 1.1 = 33 → round 33.5? 33.0 with 0.5 step stays 33.0
-            // 30 * 1.10 = 33.0 → округление до 0.5 кратности даёт 33.0
+            // FRLS 3х1.5 → 25 мм
+            Assert.Equal(25, line.Segments[0].PipeDiameter);
+
+            // 30 * 1.10 = 33.0, шаг округления 0.5 → 33.0
             Assert.Equal(33.0, line.TotalLength);
 
             // Параллельные кабели уменьшают потери относительно одного
             var dropOne = electrical.CalculateVoltageDropPercent(18, line.TotalLength, 1.5, 380, 3, 1);
             Assert.True(line.VoltageDropPercent < dropOne);
-            Assert.Equal(18, line.Current); // ручной ток не затёрт
+
+            // Ручной ток не должен быть затёрт
+            Assert.Equal(18, line.Current);
         }
     }
 }
