@@ -1,10 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace CablePlugin.Core.Templates
 {
-    /// <summary>Описание колонки таблицы отчёта.</summary>
     public class TemplateColumn
     {
         public string Id { get; set; } = string.Empty;
@@ -26,11 +24,10 @@ namespace CablePlugin.Core.Templates
         }
     }
 
-    /// <summary>Шаблон табличного отчёта (журнал / ведомость / щит).</summary>
     public class TableTemplate
     {
         public string Name { get; set; } = "По умолчанию";
-        public string Kind { get; set; } = "Journal"; // Journal | Bom | Panel
+        public string Kind { get; set; } = "Journal";
         public List<TemplateColumn> Columns { get; set; } = new List<TemplateColumn>();
         public double RowHeight { get; set; } = 8;
         public double TextHeight { get; set; } = 2.5;
@@ -51,19 +48,35 @@ namespace CablePlugin.Core.Templates
         }
     }
 
-    /// <summary>Параметры однолинейной схемы щита (блоки).</summary>
+    /// <summary>Параметры однолинейной схемы щита (блоки + библиотека DWG).</summary>
     public class PanelBlockTemplate
     {
         public string Name { get; set; } = "Однолинейка по умолчанию";
 
-        /// <summary>Имя блока автоматического выключателя.</summary>
+        /// <summary>Имя блока АВ в текущем чертеже (куда клонируем / что вставляем).</summary>
         public string BreakerBlockName { get; set; } = "CABLE_QF";
 
-        /// <summary>Имя блока шины/сборки.</summary>
         public string BusBlockName { get; set; } = "CABLE_BUS";
 
-        /// <summary>Имя блока оконечной нагрузки (упрощённо).</summary>
         public string LoadBlockName { get; set; } = "CABLE_LOAD";
+
+        /// <summary>
+        /// Путь к DWG-библиотеке пользовательских блоков.
+        /// Если задан — при EnsureBlocks блоки импортируются оттуда.
+        /// </summary>
+        public string LibraryDwgPath { get; set; } = string.Empty;
+
+        /// <summary>Имя блока АВ в библиотеке (если пусто — = BreakerBlockName).</summary>
+        public string LibraryBreakerName { get; set; } = string.Empty;
+
+        /// <summary>Имя блока шины в библиотеке.</summary>
+        public string LibraryBusName { get; set; } = string.Empty;
+
+        /// <summary>Имя блока нагрузки в библиотеке.</summary>
+        public string LibraryLoadName { get; set; } = string.Empty;
+
+        /// <summary>Перезаписывать блок в чертеже, если уже есть.</summary>
+        public bool OverwriteExistingBlocks { get; set; } = true;
 
         public double FeederSpacing { get; set; } = 30;
         public double VerticalSpan { get; set; } = 40;
@@ -73,6 +86,15 @@ namespace CablePlugin.Core.Templates
         public bool LabelBreaker { get; set; } = true;
         public bool LabelDestination { get; set; } = true;
 
+        public string ResolveLibraryBreaker() =>
+            string.IsNullOrWhiteSpace(LibraryBreakerName) ? BreakerBlockName : LibraryBreakerName;
+
+        public string ResolveLibraryBus() =>
+            string.IsNullOrWhiteSpace(LibraryBusName) ? BusBlockName : LibraryBusName;
+
+        public string ResolveLibraryLoad() =>
+            string.IsNullOrWhiteSpace(LibraryLoadName) ? LoadBlockName : LibraryLoadName;
+
         public PanelBlockTemplate Clone()
         {
             return new PanelBlockTemplate
@@ -81,6 +103,11 @@ namespace CablePlugin.Core.Templates
                 BreakerBlockName = BreakerBlockName,
                 BusBlockName = BusBlockName,
                 LoadBlockName = LoadBlockName,
+                LibraryDwgPath = LibraryDwgPath,
+                LibraryBreakerName = LibraryBreakerName,
+                LibraryBusName = LibraryBusName,
+                LibraryLoadName = LibraryLoadName,
+                OverwriteExistingBlocks = OverwriteExistingBlocks,
                 FeederSpacing = FeederSpacing,
                 VerticalSpan = VerticalSpan,
                 TextHeight = TextHeight,
@@ -92,7 +119,6 @@ namespace CablePlugin.Core.Templates
         }
     }
 
-    /// <summary>Набор шаблонов плагина.</summary>
     public class TemplateSet
     {
         public TableTemplate Journal { get; set; }
