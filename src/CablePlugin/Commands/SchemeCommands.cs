@@ -7,21 +7,16 @@ using CablePlugin.Core.Reports;
 using CablePlugin.Core.Templates;
 using CablePlugin.Data;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
+using TableTemplate = CablePlugin.Core.Templates.TableTemplate;
 
 namespace CablePlugin.Commands
 {
-    /// <summary>
-    /// Однолинейная схема блоками и управление шаблонами.
-    /// </summary>
     public class SchemeCommands
     {
         private readonly CableLineCollector _collector = new CableLineCollector();
         private readonly TemplateRepository _templates = new TemplateRepository();
         private readonly PanelSchemeBuilder _scheme = new PanelSchemeBuilder();
 
-        /// <summary>
-        /// Однолинейная схема щита блоками CABLE_QF / CABLE_BUS / CABLE_LOAD.
-        /// </summary>
         [CommandMethod("CABLESCHEME", CommandFlags.Modal)]
         public void CableScheme()
         {
@@ -100,9 +95,6 @@ namespace CablePlugin.Commands
                 $"блоки {set.PanelBlocks?.BreakerBlockName ?? "CABLE_QF"} / {set.PanelBlocks?.BusBlockName ?? "CABLE_BUS"} / {set.PanelBlocks?.LoadBlockName ?? "CABLE_LOAD"}");
         }
 
-        /// <summary>
-        /// Управление шаблонами: сброс к умолчанию / вывод состава / сохранение в чертёж.
-        /// </summary>
         [CommandMethod("CABLETEMPLATE", CommandFlags.Modal)]
         public void CableTemplate()
         {
@@ -111,10 +103,7 @@ namespace CablePlugin.Commands
             var ed = doc.Editor;
             var db = doc.Database;
 
-            var opts = new PromptKeywordOptions("\nШаблоны [Список/Сброс/Сохранить]")
-            {
-                AllowNone = true
-            };
+            var opts = new PromptKeywordOptions("\nШаблоны [Список/Сброс/Сохранить]") { AllowNone = true };
             opts.Keywords.Add("Список");
             opts.Keywords.Add("Сброс");
             opts.Keywords.Add("Сохранить");
@@ -124,7 +113,7 @@ namespace CablePlugin.Commands
             if (res.Status == PromptStatus.Cancel) return;
             var key = res.Status == PromptStatus.OK ? res.StringResult : "Список";
 
-            if (key.StartsWith("Сб", StringComparison.OrdinalIgnoreCase) || key.Equals("Reset", StringComparison.OrdinalIgnoreCase))
+            if (key.StartsWith("Сб", StringComparison.OrdinalIgnoreCase))
             {
                 var def = TemplateSet.CreateDefault();
                 using (doc.LockDocument())
@@ -133,27 +122,25 @@ namespace CablePlugin.Commands
                     _templates.Save(db, tr, def);
                     tr.Commit();
                 }
-                ed.WriteMessage("\n[CablePlugin] Шаблоны сброшены к значениям по умолчанию и сохранены в чертёж.");
+                ed.WriteMessage("\n[CablePlugin] Шаблоны сброшены к значениям по умолчанию.");
                 PrintTemplateSummary(ed, def);
                 return;
             }
 
-            if (key.StartsWith("Со", StringComparison.OrdinalIgnoreCase) || key.Equals("Save", StringComparison.OrdinalIgnoreCase))
+            if (key.StartsWith("Со", StringComparison.OrdinalIgnoreCase))
             {
-                // Сохранить текущие (или default, если ещё не было)
                 using (doc.LockDocument())
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     var set = _templates.Load(db, tr);
                     _templates.Save(db, tr, set);
                     tr.Commit();
-                    ed.WriteMessage("\n[CablePlugin] Текущий набор шаблонов записан в чертёж.");
+                    ed.WriteMessage("\n[CablePlugin] Шаблоны сохранены в чертёж.");
                     PrintTemplateSummary(ed, set);
                 }
                 return;
             }
 
-            // Список
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var set = _templates.Load(db, tr);
@@ -171,9 +158,7 @@ namespace CablePlugin.Commands
 
             var b = set.PanelBlocks ?? new PanelBlockTemplate();
             ed.WriteMessage($"\nОднолинейка: QF={b.BreakerBlockName}, BUS={b.BusBlockName}, LOAD={b.LoadBlockName}");
-            ed.WriteMessage($"\n  шаг фидеров={b.FeederSpacing}, высота={b.VerticalSpan}, подписи: АВ={b.LabelBreaker}, кабель={b.LabelCable}, куда={b.LabelDestination}");
             ed.WriteMessage("\n===========================================");
-            ed.WriteMessage("\nПодсказка: отредактируйте JSON шаблона в Named Dictionary (GrokCableDictionaries/TemplateSet) или сбросьте через CABLETEMPLATE → Сброс.");
         }
 
         private static void PrintTable(Editor ed, string title, TableTemplate t)
@@ -187,10 +172,6 @@ namespace CablePlugin.Commands
             ed.WriteMessage($"\n{title}: «{t.Name}»");
             foreach (var c in t.VisibleColumns)
                 ed.WriteMessage($"\n  [{c.Order}] {c.Id}: {c.Title} (w={c.Width})");
-
-            var hidden = t.Columns?.Count(c => !c.Visible) ?? 0;
-            if (hidden > 0)
-                ed.WriteMessage($"\n  (скрыто колонок: {hidden})");
         }
     }
 }
