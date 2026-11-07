@@ -113,6 +113,23 @@ namespace CablePlugin.Tests
             Assert.Throws<ArgumentNullException>(() => LengthCalculator.Calculate(null));
         }
 
+        [Fact]
+        public void Calculate_NegativeScale_TreatedAsOne()
+        {
+            var line = new CableLine
+            {
+                ScaleFactor = -1,
+                ReservePercent = 0,
+                AdditionalLength = 0,
+                RoundUpTo = 0,
+                Segments = { new CableSegment { Length = 10 } }
+            };
+
+            LengthCalculator.Calculate(line);
+
+            Assert.Equal(10, line.TotalLength);
+        }
+
         [Theory]
         [InlineData(10, 20, 0, 1.0, 12)]      // 10*1.2=12
         [InlineData(10, 0, 1.5, 0.5, 11.5)]   // 10+1.5=11.5
@@ -146,6 +163,13 @@ namespace CablePlugin.Tests
             };
 
             Assert.Equal(64, line.SegmentsLengthSum);
+        }
+
+        [Fact]
+        public void SegmentsLengthSum_Empty_ReturnsZero()
+        {
+            var line = new CableLine();
+            Assert.Equal(0, line.SegmentsLengthSum);
         }
     }
 }
