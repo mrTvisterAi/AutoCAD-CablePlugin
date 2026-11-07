@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
@@ -18,11 +19,10 @@ namespace CablePlugin.Commands
     {
         private readonly CableLineRepository _lineRepo = new CableLineRepository();
         private readonly PipeTableRepository _pipeRepo = new PipeTableRepository();
+        private readonly CableLineCollector _collector = new CableLineCollector();
         private readonly ElectricalCalculator _electrical = new ElectricalCalculator();
+        private readonly ExcelExportService _excel = new ExcelExportService();
 
-        /// <summary>
-        /// Привязать / создать данные кабеля на выбранных полилиниях (WPF-диалог).
-        /// </summary>
         [CommandMethod("CABLEATTACH", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableAttach()
         {
@@ -111,9 +111,6 @@ namespace CablePlugin.Commands
             }
         }
 
-        /// <summary>
-        /// Редактирование данных кабеля через WPF-диалог.
-        /// </summary>
         [CommandMethod("CABLEEDIT", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableEdit()
         {
@@ -177,9 +174,6 @@ namespace CablePlugin.Commands
             }
         }
 
-        /// <summary>
-        /// Редактор таблицы соответствия труб/гофры (сохраняется в чертёж).
-        /// </summary>
         [CommandMethod("CABLEDICT", CommandFlags.Modal)]
         public void CableDict()
         {
@@ -211,6 +205,106 @@ namespace CablePlugin.Commands
             }
 
             ed.WriteMessage($"\n[CablePlugin] Таблица труб сохранена в чертёж. Записей: {updated.Count}");
+        }
+
+        /// <summary>
+        /// Экспорт кабельных линий в Excel (.xlsx).
+        /// Выбор объектов или Enter — все линии из Model Space.
+        /// </summary>
+        [CommandMethod("CABLEEXPORT", CommandFlags.Modal | CommandFlags.UsePickSet)]
+        public void CableExport()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            List<CableLine> lines;
+
+            var peo = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nВыберите линии для экспорта (Enter — все из модели): ",
+                AllowDuplicates = false
+            };
+            peo.KeywordInput += (s, e) => { };
+
+            var filter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Start, "LWPOLYLINE,POLYLINE,LINE,ARC,SPLINE")
+            });
+
+            var selRes = ed.GetSelection(peo, filter);
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                if (selRes.Status == PromptStatus.OK && selRes.Value != null && selRes.Value.Count > 0)
+                {
+                    lines = _collector.LoadMany(selRes.Value.GetObjectIds(), tr);
+                }
+                else
+                {
+                    // Enter / пустой выбор — все линии модели
+                    lines = _collector.CollectFromModelSpace(db, tr).Select(x => x.Line).ToList();
+                }
+                tr.Commit();
+            }
+
+            if (lines == null || lines.Count == 0)
+            {
+                ed.WriteMessage("\n[CablePlugin] Нет данных кабеля для экспорта.");
+                return;
+            }
+
+            string path;
+            try
+            {
+                var sfd = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Экспорт кабельных линий",
+                    Filter = "Excel (*.xlsx)|*.xlsx",
+                    DefaultExt = ".xlsx",
+                    FileName = "CableLines.xlsx",
+                    AddExtension = true
+                };
+
+                if (sfd.ShowDialog() != true)
+                {
+                    ed.WriteMessage("\n[CablePlugin] Экспорт отменён.");
+                    return;
+                }
+
+                path = sfd.FileName;
+            }
+            catch
+            {
+                // Fallback без WPF dialog
+                var opts = new PromptSaveFileOptions("\nФайл Excel")
+                {
+                    DialogCaption = "Экспорт кабельных линий",
+                    Filter = "Excel (*.xlsx)|*.xlsx",
+                    FilterIndex = 0
+                };
+                var pfr = ed.GetFileNameForSave(opts);
+                if (pfr.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\n[CablePlugin] Экспорт отменён.");
+                    return;
+                }
+                path = pfr.StringResult;
+                if (!path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                    path += ".xlsx";
+            }
+
+            try
+            {
+                _excel.Export(lines, path);
+                ed.WriteMessage($"\n[CablePlugin] Экспортировано линий: {lines.Count}");
+                ed.WriteMessage($"\n  Файл: {path}");
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[CablePlugin] Ошибка экспорта: {ex.Message}");
+            }
         }
 
         [CommandMethod("CABLEINFO", CommandFlags.Modal | CommandFlags.UsePickSet)]
@@ -334,14 +428,8 @@ namespace CablePlugin.Commands
 
         private static IntPtr GetAcadOwnerHandle()
         {
-            try
-            {
-                return AcApp.MainWindow.Handle;
-            }
-            catch
-            {
-                return IntPtr.Zero;
-            }
+            try { return AcApp.MainWindow.Handle; }
+            catch { return IntPtr.Zero; }
         }
 
         private static ObjectIdCollection SelectCurves(Editor ed, string message)
