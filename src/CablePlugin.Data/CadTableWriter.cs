@@ -5,12 +5,10 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using CablePlugin.Core.Reports;
 using CablePlugin.Core.Templates;
+using TableTemplate = CablePlugin.Core.Templates.TableTemplate;
 
 namespace CablePlugin.Data
 {
-    /// <summary>
-    /// Вставка таблиц отчётов в чертёж AutoCAD (с учётом шаблонов колонок).
-    /// </summary>
     public class CadTableWriter
     {
         public ObjectId InsertJournalTable(
@@ -72,7 +70,6 @@ namespace CablePlugin.Data
             space.AppendEntity(table);
             tr.AddNewlyCreatedDBObject(table, true);
 
-            // Вторая таблица — трубы
             var pipes = bom?.Pipes ?? new List<BomPipeRow>();
             if (pipes.Count > 0)
             {
