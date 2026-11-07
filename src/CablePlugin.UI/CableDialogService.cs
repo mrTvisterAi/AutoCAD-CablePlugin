@@ -32,7 +32,7 @@ namespace CablePlugin.UI
         /// Открыть редактор таблицы соответствия труб.
         /// </summary>
         /// <returns>Новая таблица или null при отмене</returns>
-        public static List<PipeCorrespondencepondence> EditPipeTable(
+        public static List<PipeCorrespondence> EditPipeTable(
             IEnumerable<PipeCorrespondence> currentTable = null,
             System.IntPtr ownerHandle = default)
         {
