@@ -1,4 +1,3 @@
-using System.Linq;
 using CablePlugin.Core.Models;
 using Xunit;
 
