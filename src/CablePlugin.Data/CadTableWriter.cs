@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using CablePlugin.Core.Reports;
+using CablePlugin.Core.Templates;
 
 namespace CablePlugin.Data
 {
     /// <summary>
-    /// Вставка таблиц отчётов в чертёж AutoCAD.
+    /// Вставка таблиц отчётов в чертёж AutoCAD (с учётом шаблонов колонок).
     /// </summary>
     public class CadTableWriter
     {
@@ -16,37 +18,29 @@ namespace CablePlugin.Data
             Transaction tr,
             BlockTableRecord space,
             Point3d insertionPoint,
-            IList<JournalRow> rows)
+            IList<JournalRow> rows,
+            TableTemplate template = null)
         {
-            var headers = new[]
-            {
-                "№", "Группа", "От", "До", "Марка", "n×S", "L, м", "Прокладка", "I, А", "ΔU %", "АВ"
-            };
+            template = template ?? DefaultTemplates.Journal();
+            var cols = template.VisibleColumns.ToList();
+            if (cols.Count == 0) return ObjectId.Null;
 
             int dataRows = rows?.Count ?? 0;
-            var table = CreateTable(headers.Length, dataRows + 1, insertionPoint, 18, 8);
+            var table = CreateTable(cols, dataRows + 1, insertionPoint, template.RowHeight);
 
-            for (int c = 0; c < headers.Length; c++)
-                table.Cells[0, c].TextString = headers[c];
+            for (int c = 0; c < cols.Count; c++)
+                table.Cells[0, c].TextString = cols[c].Title ?? cols[c].Id;
 
             for (int i = 0; i < dataRows; i++)
             {
-                var r = rows[i];
-                int row = i + 1;
-                table.Cells[row, 0].TextString = r.Number.ToString();
-                table.Cells[row, 1].TextString = r.GroupName ?? "";
-                table.Cells[row, 2].TextString = r.From ?? "";
-                table.Cells[row, 3].TextString = r.To ?? "";
-                table.Cells[row, 4].TextString = r.CableMark ?? "";
-                table.Cells[row, 5].TextString = $"{r.Cores}х{r.Section}";
-                table.Cells[row, 6].TextString = r.Length.ToString("0.###");
-                table.Cells[row, 7].TextString = Truncate(r.LayingMethods, 40);
-                table.Cells[row, 8].TextString = r.Current.ToString("0.##");
-                table.Cells[row, 9].TextString = r.VoltageDropPercent.ToString("0.##");
-                table.Cells[row, 10].TextString = r.Breaker ?? "";
+                for (int c = 0; c < cols.Count; c++)
+                {
+                    var text = TemplateCellResolver.Journal(cols[c].Id, rows[i]);
+                    table.Cells[i + 1, c].TextString = Truncate(text, 80);
+                }
             }
 
-            StyleHeader(table, headers.Length);
+            StyleHeader(table, cols.Count);
             space.AppendEntity(table);
             tr.AddNewlyCreatedDBObject(table, true);
             return table.ObjectId;
@@ -57,51 +51,57 @@ namespace CablePlugin.Data
             Transaction tr,
             BlockTableRecord space,
             Point3d insertionPoint,
-            BillOfMaterials bom)
+            BillOfMaterials bom,
+            TableTemplate template = null)
         {
+            template = template ?? DefaultTemplates.Bom();
+            var cols = template.VisibleColumns.ToList();
             var cables = bom?.Cables ?? new List<BomCableRow>();
+
+            var table = CreateTable(cols, cables.Count + 1, insertionPoint, template.RowHeight);
+            for (int c = 0; c < cols.Count; c++)
+                table.Cells[0, c].TextString = cols[c].Title ?? cols[c].Id;
+
+            for (int i = 0; i < cables.Count; i++)
+            {
+                for (int c = 0; c < cols.Count; c++)
+                    table.Cells[i + 1, c].TextString = TemplateCellResolver.BomCable(cols[c].Id, cables[i]);
+            }
+
+            StyleHeader(table, cols.Count);
+            space.AppendEntity(table);
+            tr.AddNewlyCreatedDBObject(table, true);
+
+            // Вторая таблица — трубы
             var pipes = bom?.Pipes ?? new List<BomPipeRow>();
+            if (pipes.Count > 0)
+            {
+                var pt2 = new Point3d(
+                    insertionPoint.X,
+                    insertionPoint.Y - (cables.Count + 2) * (template.RowHeight > 0 ? template.RowHeight : 8) - 5,
+                    insertionPoint.Z);
 
-            // Одна таблица: сначала кабели, пустая строка-разделитель логически через заголовок второй секции
-            int totalRows = 1 + cables.Count + 2 + pipes.Count; // header cables + data + header pipes label + header pipes + data
-            // Упростим: две таблицы друг под другом
-            var id1 = InsertSimpleTable(space, tr, insertionPoint,
-                new[] { "Марка", "Жилы", "Сечение", "Линий", "Σ L, м" },
-                (row, col) =>
+                var pipeHeaders = new[] { "Способ", "∅, мм", "Σ L, м", "Участков" };
+                var widths = new[] { 28.0, 14.0, 16.0, 14.0 };
+                var t2 = CreateTableFixed(pipeHeaders.Length, pipes.Count + 1, pt2, widths, template.RowHeight);
+                for (int c = 0; c < pipeHeaders.Length; c++)
+                    t2.Cells[0, c].TextString = pipeHeaders[c];
+
+                for (int i = 0; i < pipes.Count; i++)
                 {
-                    if (row == 0) return null; // header already set
-                    var c = cables[row - 1];
-                    switch (col)
-                    {
-                        case 0: return c.Mark;
-                        case 1: return c.Cores.ToString();
-                        case 2: return c.Section.ToString("0.###");
-                        case 3: return c.LineCount.ToString();
-                        case 4: return c.TotalLength.ToString("0.###");
-                        default: return "";
-                    }
-                },
-                cables.Count);
+                    var p = pipes[i];
+                    t2.Cells[i + 1, 0].TextString = p.LayingMethod ?? "";
+                    t2.Cells[i + 1, 1].TextString = p.Diameter?.ToString("0.##") ?? "";
+                    t2.Cells[i + 1, 2].TextString = p.TotalLength.ToString("0.###");
+                    t2.Cells[i + 1, 3].TextString = p.SegmentCount.ToString();
+                }
 
-            var pt2 = new Point3d(insertionPoint.X, insertionPoint.Y - (cables.Count + 2) * 8 - 5, insertionPoint.Z);
-            InsertSimpleTable(space, tr, pt2,
-                new[] { "Способ", "∅, мм", "Σ L, м", "Участков" },
-                (row, col) =>
-                {
-                    if (row == 0) return null;
-                    var p = pipes[row - 1];
-                    switch (col)
-                    {
-                        case 0: return p.LayingMethod;
-                        case 1: return p.Diameter?.ToString("0.##") ?? "";
-                        case 2: return p.TotalLength.ToString("0.###");
-                        case 3: return p.SegmentCount.ToString();
-                        default: return "";
-                    }
-                },
-                pipes.Count);
+                StyleHeader(t2, pipeHeaders.Length);
+                space.AppendEntity(t2);
+                tr.AddNewlyCreatedDBObject(t2, true);
+            }
 
-            return id1;
+            return table.ObjectId;
         }
 
         public ObjectId InsertPanelTable(
@@ -109,44 +109,32 @@ namespace CablePlugin.Data
             Transaction tr,
             BlockTableRecord space,
             Point3d insertionPoint,
-            PanelReport panel)
+            PanelReport panel,
+            TableTemplate template = null)
         {
+            template = template ?? DefaultTemplates.Panel();
+            var cols = template.VisibleColumns.ToList();
             var feeders = panel?.Feeders ?? new List<PanelFeederRow>();
-            // +2 строки под заголовок щита и итоги — делаем обычную таблицу фидеров + текст итогов отдельно через ячейки title
 
-            var headers = new[]
-            {
-                "№", "Обозн.", "Куда", "Кабель", "L, м", "I, А", "АВ", "ΔU %"
-            };
-
-            var table = CreateTable(headers.Length, feeders.Count + 1, insertionPoint, 20, 8);
-            for (int c = 0; c < headers.Length; c++)
-                table.Cells[0, c].TextString = headers[c];
+            var table = CreateTable(cols, feeders.Count + 1, insertionPoint, template.RowHeight);
+            for (int c = 0; c < cols.Count; c++)
+                table.Cells[0, c].TextString = cols[c].Title ?? cols[c].Id;
 
             for (int i = 0; i < feeders.Count; i++)
             {
-                var f = feeders[i];
-                int row = i + 1;
-                table.Cells[row, 0].TextString = f.Number.ToString();
-                table.Cells[row, 1].TextString = f.Designation ?? "";
-                table.Cells[row, 2].TextString = f.To ?? "";
-                table.Cells[row, 3].TextString = $"{f.CableMark} {f.Cores}х{f.Section}";
-                table.Cells[row, 4].TextString = f.Length.ToString("0.###");
-                table.Cells[row, 5].TextString = f.Current.ToString("0.##");
-                table.Cells[row, 6].TextString = f.Breaker ?? "";
-                table.Cells[row, 7].TextString = f.VoltageDropPercent.ToString("0.##");
+                for (int c = 0; c < cols.Count; c++)
+                    table.Cells[i + 1, c].TextString = TemplateCellResolver.Panel(cols[c].Id, feeders[i]);
             }
 
-            StyleHeader(table, headers.Length);
+            StyleHeader(table, cols.Count);
             space.AppendEntity(table);
             tr.AddNewlyCreatedDBObject(table, true);
 
-            // Подпись щита над таблицей
             var title = new DBText
             {
                 Position = new Point3d(insertionPoint.X, insertionPoint.Y + 5, insertionPoint.Z),
-                Height = 2.5,
-                TextString = $"Щит {panel.PanelName}  |  Kс={panel.DemandFactor:0.###}  |  ΣI={panel.SumCurrent:0.##}А → Iспрос={panel.DemandCurrent:0.##}А"
+                Height = template.TextHeight > 0 ? template.TextHeight : 2.5,
+                TextString = $"Щит {panel?.PanelName}  |  Kс={panel?.DemandFactor:0.###}  |  ΣI={panel?.SumCurrent:0.##}А → Iспрос={panel?.DemandCurrent:0.##}А"
             };
             space.AppendEntity(title);
             tr.AddNewlyCreatedDBObject(title, true);
@@ -154,51 +142,36 @@ namespace CablePlugin.Data
             return table.ObjectId;
         }
 
-        private ObjectId InsertSimpleTable(
-            BlockTableRecord space,
-            Transaction tr,
-            Point3d pt,
-            string[] headers,
-            Func<int, int, string> cellText,
-            int dataRowCount)
-        {
-            var table = CreateTable(headers.Length, dataRowCount + 1, pt, 22, 8);
-            for (int c = 0; c < headers.Length; c++)
-                table.Cells[0, c].TextString = headers[c];
-
-            for (int r = 1; r <= dataRowCount; r++)
-            {
-                for (int c = 0; c < headers.Length; c++)
-                {
-                    var text = cellText(r, c);
-                    if (text != null)
-                        table.Cells[r, c].TextString = text;
-                }
-            }
-
-            StyleHeader(table, headers.Length);
-            space.AppendEntity(table);
-            tr.AddNewlyCreatedDBObject(table, true);
-            return table.ObjectId;
-        }
-
-        private static Table CreateTable(int cols, int rows, Point3d pt, double colWidth, double rowHeight)
+        private static Table CreateTable(List<TemplateColumn> cols, int rows, Point3d pt, double rowHeight)
         {
             var table = new Table();
             table.TableStyle = HostApplicationServices.WorkingDatabase.Tablestyle;
-            table.SetSize(rows, cols);
-            table.SetRowHeight(rowHeight);
-            table.SetColumnWidth(colWidth);
+            table.SetSize(rows, cols.Count);
+            table.SetRowHeight(rowHeight > 0 ? rowHeight : 8);
             table.Position = pt;
+
+            for (int c = 0; c < cols.Count; c++)
+                table.Columns[c].Width = cols[c].Width > 0 ? cols[c].Width : 18;
+
+            return table;
+        }
+
+        private static Table CreateTableFixed(int colCount, int rows, Point3d pt, double[] widths, double rowHeight)
+        {
+            var table = new Table();
+            table.TableStyle = HostApplicationServices.WorkingDatabase.Tablestyle;
+            table.SetSize(rows, colCount);
+            table.SetRowHeight(rowHeight > 0 ? rowHeight : 8);
+            table.Position = pt;
+            for (int c = 0; c < colCount; c++)
+                table.Columns[c].Width = widths != null && c < widths.Length ? widths[c] : 18;
             return table;
         }
 
         private static void StyleHeader(Table table, int cols)
         {
             for (int c = 0; c < cols; c++)
-            {
                 table.Cells[0, c].TextStyleId = HostApplicationServices.WorkingDatabase.Textstyle;
-            }
         }
 
         private static string Truncate(string s, int max)
