@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using CablePlugin.Core.Reports;
@@ -9,23 +8,41 @@ namespace CablePlugin.Data
 {
     /// <summary>
     /// Создание блоков однолинейки и вставка схемы щита.
+    /// При наличии LibraryDwgPath блоки подставляются из пользовательской DWG.
     /// </summary>
     public class PanelSchemeBuilder
     {
+        private readonly BlockLibraryImporter _importer = new BlockLibraryImporter();
+
         /// <summary>
-        /// Гарантирует наличие блоков QF / BUS / LOAD в чертеже.
+        /// Результат последней попытки импорта из библиотеки (для сообщений в команде).
+        /// </summary>
+        public BlockLibraryImporter.ImportResult LastImportResult { get; private set; }
+
+        /// <summary>
+        /// Гарантирует наличие блоков QF / BUS / LOAD: сначала библиотека, затем встроенные.
         /// </summary>
         public void EnsureBlocks(Database db, Transaction tr, PanelBlockTemplate template)
         {
             if (template == null) template = new PanelBlockTemplate();
-            EnsureBreakerBlock(db, tr, template.BreakerBlockName);
-            EnsureBusBlock(db, tr, template.BusBlockName);
-            EnsureLoadBlock(db, tr, template.LoadBlockName);
+
+            LastImportResult = null;
+            if (!string.IsNullOrWhiteSpace(template.LibraryDwgPath))
+            {
+                BlockLibraryImporter.ImportResult ir;
+                _importer.TryImportPanelBlocks(db, tr, template, out ir);
+                LastImportResult = ir;
+            }
+
+            // Фоллбэк: если после импорта блока нет — нарисовать встроенный
+            if (!BlockExists(db, tr, template.BreakerBlockName))
+                EnsureBreakerBlock(db, tr, template.BreakerBlockName);
+            if (!BlockExists(db, tr, template.BusBlockName))
+                EnsureBusBlock(db, tr, template.BusBlockName);
+            if (!BlockExists(db, tr, template.LoadBlockName))
+                EnsureLoadBlock(db, tr, template.LoadBlockName);
         }
 
-        /// <summary>
-        /// Вставить однолинейную схему от точки вставки (шина сверху, фидеры вниз).
-        /// </summary>
         public void InsertScheme(
             Database db,
             Transaction tr,
@@ -44,14 +61,12 @@ namespace CablePlugin.Data
             int count = panel.Feeders.Count;
             double spacing = template.FeederSpacing > 0 ? template.FeederSpacing : 30;
             double span = template.VerticalSpan > 0 ? template.VerticalSpan : 40;
-            double totalWidth = (count - 1) * spacing;
+            double totalWidth = Math.Max(0, (count - 1) * spacing);
 
-            // Шинопровод
             var busId = bt[template.BusBlockName];
             var busPos = new Point3d(origin.X + totalWidth / 2.0, origin.Y, origin.Z);
             InsertBlock(space, tr, busId, busPos, 1.0);
 
-            // Заголовок
             var title = new DBText
             {
                 Position = new Point3d(origin.X, origin.Y + 8, origin.Z),
@@ -61,7 +76,6 @@ namespace CablePlugin.Data
             space.AppendEntity(title);
             tr.AddNewlyCreatedDBObject(title, true);
 
-            // Горизонтальная линия шины
             if (template.DrawWireLines && count > 1)
             {
                 var busLine = new Line(
@@ -151,7 +165,6 @@ namespace CablePlugin.Data
             bt.Add(btr);
             tr.AddNewlyCreatedDBObject(btr, true);
 
-            // Условное обозначение АВ: прямоугольник + разрыв линии
             var rect = new Polyline();
             rect.AddVertexAt(0, new Point2d(-2, -3), 0, 0, 0);
             rect.AddVertexAt(1, new Point2d(2, -3), 0, 0, 0);
@@ -176,7 +189,6 @@ namespace CablePlugin.Data
             bt.Add(btr);
             tr.AddNewlyCreatedDBObject(btr, true);
 
-            // Толстая короткая шина
             var pl = new Polyline();
             pl.AddVertexAt(0, new Point2d(-6, -0.8), 0, 1.6, 1.6);
             pl.AddVertexAt(1, new Point2d(6, -0.8), 0, 1.6, 1.6);
@@ -194,7 +206,6 @@ namespace CablePlugin.Data
             bt.Add(btr);
             tr.AddNewlyCreatedDBObject(btr, true);
 
-            // Круг нагрузки
             var circle = new Circle(Point3d.Origin, Vector3d.ZAxis, 2.0);
             btr.AppendEntity(circle);
             tr.AddNewlyCreatedDBObject(circle, true);
@@ -209,6 +220,7 @@ namespace CablePlugin.Data
 
         private static bool BlockExists(Database db, Transaction tr, string name)
         {
+            if (string.IsNullOrWhiteSpace(name)) return false;
             var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
             return bt.Has(name);
         }
