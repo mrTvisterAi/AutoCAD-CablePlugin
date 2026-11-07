@@ -1,2 +1,37 @@
-# AutoCAD-CablePlugin
-AutoCAD .NET (C#) plugin for cable line management, calculations according to GOST, cable journals and BOMs. Stages 1-3: data model, multi-segment laying methods, pipe auto-selection, electrical calculations.
+# AutoCAD Cable Plugin
+
+Плагин для AutoCAD (.NET / C#) для работы с кабельными линиями на основе полилиний.
+
+## Возможности (Этапы 1–3)
+
+- Привязка данных кабеля к полилиниям
+- Несколько способов прокладки на одной линии (лоток, кабель-канал, гофра и т.д.)
+- Автоматический подбор диаметра трубы/гофры по таблице соответствия
+- Расчёт длины с учётом масштаба, процента запаса и дополнительных опусков
+- Расчёт тока, потерь напряжения по ГОСТ Р 50571.5.52-2011 Приложение G
+- Подбор номинала автоматического выключателя
+- Экспорт данных в Excel
+
+## Структура решения
+
+```
+AutoCAD-CablePlugin/
+├── src/
+│   ├── CablePlugin.Core/          # Модель данных и расчёты
+│   ├── CablePlugin.Data/          # Работа с DWG (XData, Dictionary)
+│   ├── CablePlugin.UI/            # WPF-диалоги и палитры
+│   └── CablePlugin/               # Команды AutoCAD, точка входа
+├── tests/
+│   └── CablePlugin.Tests/
+└── docs/
+```
+
+## Требования
+
+- AutoCAD 2021–2025+
+- Visual Studio 2022
+- .NET Framework 4.8
+
+## Статус
+
+В активной разработке. Реализуются Этапы 1–3.
