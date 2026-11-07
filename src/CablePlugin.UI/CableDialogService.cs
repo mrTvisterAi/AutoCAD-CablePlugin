@@ -13,10 +13,6 @@ namespace CablePlugin.UI
         /// <summary>
         /// Открыть диалог редактирования линии.
         /// </summary>
-        /// <param name="line">Исходные данные (может быть new CableLine())</param>
-        /// <param name="pipeTable">Таблица соответствия труб</param>
-        /// <param name="ownerHandle">HWND окна AutoCAD (опционально)</param>
-        /// <returns>Обновлённая линия или null, если отмена</returns>
         public static CableLine EditLine(
             CableLine line,
             IEnumerable<PipeCorrespondence> pipeTable = null,
@@ -26,15 +22,33 @@ namespace CablePlugin.UI
             vm.LoadFrom(line ?? new CableLine());
 
             var wnd = new EditCableLineWindow(vm);
-
-            if (ownerHandle != System.IntPtr.Zero)
-            {
-                var helper = new System.Windows.Interop.WindowInteropHelper(wnd);
-                helper.Owner = ownerHandle;
-            }
+            SetOwner(wnd, ownerHandle);
 
             var ok = wnd.ShowDialog();
             return ok == true ? wnd.ResultLine : null;
+        }
+
+        /// <summary>
+        /// Открыть редактор таблицы соответствия труб.
+        /// </summary>
+        /// <returns>Новая таблица или null при отмене</returns>
+        public static List<PipeCorrespondencepondence> EditPipeTable(
+            IEnumerable<PipeCorrespondence> currentTable = null,
+            System.IntPtr ownerHandle = default)
+        {
+            var vm = new PipeTableViewModel(currentTable);
+            var wnd = new PipeTableWindow(vm);
+            SetOwner(wnd, ownerHandle);
+
+            var ok = wnd.ShowDialog();
+            return ok == true ? wnd.ResultTable : null;
+        }
+
+        private static void SetOwner(System.Windows.Window wnd, System.IntPtr ownerHandle)
+        {
+            if (ownerHandle == System.IntPtr.Zero) return;
+            var helper = new System.Windows.Interop.WindowInteropHelper(wnd);
+            helper.Owner = ownerHandle;
         }
     }
 }
