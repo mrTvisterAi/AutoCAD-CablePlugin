@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CablePlugin.Core\CablePlugin.Core.csproj" />
     <ProjectReference Include="..\CablePlugin.Data\CablePlugin.Data.csproj" />
+    <ProjectReference Include="..\CablePlugin.UI\CablePlugin.UI.csproj" />
   </ItemGroup>
 
 </Project>
