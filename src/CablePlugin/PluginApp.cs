@@ -1,4 +1,3 @@
-using System;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 
@@ -15,7 +14,8 @@ namespace CablePlugin
         public void Initialize()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
-            doc?.Editor.WriteMessage("\n[CablePlugin] Загружен. Команды: CABLEATTACH, CABLEEDIT, CABLEINFO, CABLERECALC, CABLEREMOVE");
+            doc?.Editor.WriteMessage(
+                "\n[CablePlugin] Загружен. Команды: CABLEATTACH, CABLEEDIT, CABLEDICT, CABLEINFO, CABLERECALC, CABLEREMOVE");
         }
 
         public void Terminate()
