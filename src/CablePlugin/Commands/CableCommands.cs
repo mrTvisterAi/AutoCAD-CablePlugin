@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
@@ -49,7 +48,6 @@ namespace CablePlugin.Commands
                 tr.Commit();
             }
 
-            // Черновик линии: один сегмент с геометрической длиной первой полилинии
             var draft = new CableLine
             {
                 Cable = new CableInfo { Mark = "ВВГнг(А)-LS", Cores = 3, Section = 1.5, CableCount = 1 },
@@ -91,7 +89,6 @@ namespace CablePlugin.Commands
                     double geomLen = PolylineLengthHelper.GetLength(id, tr);
                     line.GeometricLength = geomLen;
 
-                    // Если сегмент один и длина совпадала с черновиком — подставить длину этой полилинии
                     if (line.Segments != null && line.Segments.Count == 1)
                     {
                         if (Math.Abs(line.Segments[0].Length - firstGeomLen) < 1e-6 || line.Segments[0].Length <= 0)
@@ -138,7 +135,6 @@ namespace CablePlugin.Commands
 
                 if (existing == null)
                 {
-                    // Нет данных — предложим создать
                     double geomLen = PolylineLengthHelper.GetLength(id, tr);
                     existing = new CableLine
                     {
@@ -182,8 +178,41 @@ namespace CablePlugin.Commands
         }
 
         /// <summary>
-        /// Показать данные кабеля выбранного объекта.
+        /// Редактор таблицы соответствия труб/гофры (сохраняется в чертёж).
         /// </summary>
+        [CommandMethod("CABLEDICT", CommandFlags.Modal)]
+        public void CableDict()
+        {
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var db = doc.Database;
+
+            List<PipeCorrespondence> current;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                current = _pipeRepo.Load(db, tr);
+                tr.Commit();
+            }
+
+            var owner = GetAcadOwnerHandle();
+            var updated = CableDialogService.EditPipeTable(current, owner);
+            if (updated == null)
+            {
+                ed.WriteMessage("\n[CablePlugin] Таблица труб: отменено.");
+                return;
+            }
+
+            using (doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                _pipeRepo.Save(db, tr, updated);
+                tr.Commit();
+            }
+
+            ed.WriteMessage($"\n[CablePlugin] Таблица труб сохранена в чертёж. Записей: {updated.Count}");
+        }
+
         [CommandMethod("CABLEINFO", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableInfo()
         {
@@ -302,8 +331,6 @@ namespace CablePlugin.Commands
                 ed.WriteMessage($"\n[CablePlugin] Удалены данные с объектов: {n}");
             }
         }
-
-        // ===== Helpers =====
 
         private static IntPtr GetAcadOwnerHandle()
         {
