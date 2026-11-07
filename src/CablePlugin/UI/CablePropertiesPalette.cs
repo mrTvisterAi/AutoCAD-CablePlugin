@@ -1,4 +1,6 @@
 using System;
+using System.Windows.Forms;
+using System.Windows.Forms.Integration;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -20,7 +22,6 @@ namespace CablePlugin.UIHost
     {
         private static PaletteSet _palette;
         private static CablePropertiesViewModel _vm;
-        private static CablePropertiesControl _control;
         private static ObjectId _currentId = ObjectId.Null;
         private static Document _subscribedDoc;
         private static readonly CableLineRepository Repo = new CableLineRepository();
@@ -54,7 +55,12 @@ namespace CablePlugin.UIHost
             _vm.RequestApply += OnApply;
             _vm.RequestEditFull += OnEditFull;
 
-            _control = new CablePropertiesControl(_vm);
+            var wpf = new CablePropertiesControl(_vm);
+            var host = new ElementHost
+            {
+                Dock = DockStyle.Fill,
+                Child = wpf
+            };
 
             _palette = new PaletteSet("Свойства кабеля", new Guid("A7C0E2B1-4F3D-4A9E-9C21-8B6D5E0F1A22"))
             {
@@ -65,7 +71,7 @@ namespace CablePlugin.UIHost
                 DockEnabled = (DockSides)((int)DockSides.Left | (int)DockSides.Right)
             };
 
-            _palette.Add("Кабель", _control);
+            _palette.Add("Кабель", host);
 
             AcApp.DocumentManager.DocumentActivated += (s, e) =>
             {
@@ -81,11 +87,8 @@ namespace CablePlugin.UIHost
 
             if (_subscribedDoc != null)
             {
-                try
-                {
-                    _subscribedDoc.ImpliedSelectionChanged -= OnImpliedSelectionChanged;
-                }
-                catch { /* doc may be disposed */ }
+                try { _subscribedDoc.ImpliedSelectionChanged -= OnImpliedSelectionChanged; }
+                catch { /* disposed */ }
             }
 
             _subscribedDoc = doc;
@@ -95,12 +98,8 @@ namespace CablePlugin.UIHost
         private static void OnImpliedSelectionChanged(object sender, EventArgs e)
         {
             if (_palette == null || !_palette.Visible) return;
-            // Не сбрасывать несохранённые правки без предупреждения — если dirty, только обновить статус
             if (_vm != null && _vm.IsDirty)
-            {
-                // оставляем текущие значения, показываем что выделение сменилось
-                return;
-            }
+                return; // не затирать несохранённые правки
 
             RefreshFromSelection();
         }
@@ -145,18 +144,17 @@ namespace CablePlugin.UIHost
                 {
                     _currentId = ObjectId.Null;
                     _vm.Clear();
-                    _vm.GetType(); // keep
                     tr.Commit();
                     return;
                 }
 
                 var line = Repo.Load(id, tr);
                 var handle = id.Handle.ToString();
+                double len = PolylineLengthHelper.GetLength(id, tr);
 
                 if (line == null)
                 {
                     _currentId = id;
-                    // Объект без данных — предложить пустой шаблон для быстрого заполнения
                     var draft = new CableLine
                     {
                         Cable = new CableInfo { Mark = "ВВГнг(А)-LS", Cores = 3, Section = 1.5 },
@@ -165,18 +163,17 @@ namespace CablePlugin.UIHost
                             new CableSegment
                             {
                                 LayingMethod = "Гофра",
-                                Length = PolylineLengthHelper.GetLength(id, tr),
+                                Length = len,
                                 IsPipeDiameterAuto = true
                             }
                         },
                         ReservePercent = 20,
                         ScaleFactor = 1.0,
                         RoundUpTo = 1.0,
-                        GeometricLength = PolylineLengthHelper.GetLength(id, tr)
+                        GeometricLength = len
                     };
                     LengthCalculator.Calculate(draft);
                     _vm.LoadFrom(draft, handle, "Нет данных кабеля — заполните и нажмите Применить");
-                    // считаем dirty чтобы пользователь мог сохранить новый
                     tr.Commit();
                     return;
                 }
@@ -206,16 +203,17 @@ namespace CablePlugin.UIHost
                     var pipeTable = PipeRepo.Load(db, tr);
                     var pipeSelector = new PipeSelector(pipeTable);
                     pipeSelector.ApplyToLine(updated);
+                    updated.GeometricLength = PolylineLengthHelper.GetLength(_currentId, tr);
                     LengthCalculator.Calculate(updated);
                     Electrical.Calculate(updated);
 
-                    updated.GeometricLength = PolylineLengthHelper.GetLength(_currentId, tr);
                     Repo.Save(_currentId, updated, tr);
                     tr.Commit();
 
                     _vm.LoadFrom(updated, _currentId.Handle.ToString(), "Сохранено");
                     _vm.MarkSaved();
-                    doc.Editor.WriteMessage($"\n[CablePlugin] Свойства сохранены: {updated.Cable?.DisplayName}, L={updated.TotalLength:0.###} м");
+                    doc.Editor.WriteMessage(
+                        $"\n[CablePlugin] Свойства сохранены: {updated.Cable?.DisplayName}, L={updated.TotalLength:0.###} м");
                 }
             }
             catch (System.Exception ex)
