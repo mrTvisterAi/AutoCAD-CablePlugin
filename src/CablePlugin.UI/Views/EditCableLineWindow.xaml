@@ -34,7 +34,6 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- Группа / От / До -->
     <GroupBox Header="Идентификация" Grid.Row="0" Margin="0,0,0,8" Padding="8">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -54,7 +53,6 @@
       </Grid>
     </GroupBox>
 
-    <!-- Кабель -->
     <GroupBox Header="Кабель" Grid.Row="1" Margin="0,0,0,8" Padding="8">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -78,7 +76,6 @@
       </Grid>
     </GroupBox>
 
-    <!-- Сегменты -->
     <GroupBox Header="Участки прокладки" Grid.Row="2" Margin="0,0,0,8" Padding="8">
       <Grid>
         <Grid.RowDefinitions>
@@ -116,7 +113,6 @@
       </Grid>
     </GroupBox>
 
-    <!-- Запас и электрика -->
     <Grid Grid.Row="3" Margin="0,0,0,8">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="*"/>
@@ -177,16 +173,15 @@
           <TextBlock Text="Фазы:" Style="{StaticResource Label}" Grid.Row="1" Grid.Column="2"/>
           <TextBox Text="{Binding Phases, UpdateSourceTrigger=PropertyChanged}" Grid.Row="1" Grid.Column="3"/>
 
-          <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,8,0,0"
+          <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0"
                      Text="{Binding Current, StringFormat=I = {0:0.##} А}"/>
           <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Margin="0,8,0,0"
                      HorizontalAlignment="Right"
-                     Text="{Binding VoltageDropPercent, StringFormat=ΔU = {0:0.##} %  |  АВ {Binding RecommendedBreaker}}"/>
+                     Text="{Binding VoltageDropPercent, StringFormat=ΔU = {0:0.##} %}"/>
         </Grid>
       </GroupBox>
     </Grid>
 
-    <!-- Результаты расчёта (вторая строка для АВ) -->
     <Border Grid.Row="4" Background="#E8F0FE" CornerRadius="4" Padding="10,6" Margin="0,0,0,10">
       <TextBlock FontSize="13">
         <Run FontWeight="SemiBold" Text="Расчёт: "/>
@@ -198,7 +193,6 @@
       </TextBlock>
     </Border>
 
-    <!-- Кнопки -->
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Grid.Row="5">
       <Button Content="Пересчитать" Command="{Binding RecalculateCommand}"/>
       <Button Content="OK" IsDefault="True" Command="{Binding OkCommand}" FontWeight="SemiBold"/>
