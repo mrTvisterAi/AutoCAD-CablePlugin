@@ -32,7 +32,6 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <!-- Статус -->
     <Border Grid.Row="0" Background="#E8F0FE" CornerRadius="3" Padding="8,5" Margin="0,0,0,8">
       <StackPanel>
         <TextBlock Text="{Binding Status}" FontWeight="SemiBold" TextWrapping="Wrap"/>
@@ -41,13 +40,11 @@
       </StackPanel>
     </Border>
 
-    <!-- Пусто -->
     <TextBlock Grid.Row="1" Text="Нет выбранной кабельной линии."
                VerticalAlignment="Center" HorizontalAlignment="Center"
                Foreground="#888"
                Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}"/>
 
-    <!-- Свойства -->
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                   Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
       <StackPanel>
@@ -159,7 +156,6 @@
       </StackPanel>
     </ScrollViewer>
 
-    <!-- Кнопки -->
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0"
                 Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
       <Button Content="Пересчёт" Command="{Binding RecalcCommand}"/>
@@ -168,4 +164,6 @@
     </StackPanel>
 
     <TextBlock Grid.Row="3" Margin="0,6,0,0" FontSize="10" Foreground="#888"
-               Text="Изменения пишутся на объект после «Применить»."
+               Text="Изменения пишутся на объект после «Применить»."/>
+  </Grid>
+</UserControl>
