@@ -3,28 +3,23 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
-using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using CablePlugin.Core.Models;
 using CablePlugin.Core.Reports;
 using CablePlugin.Core.Services;
+using CablePlugin.Core.Templates;
 using CablePlugin.Data;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace CablePlugin.Commands
 {
-    /// <summary>
-    /// Команды отчётов (этап 4).
-    /// </summary>
     public class ReportCommands
     {
         private readonly CableLineCollector _collector = new CableLineCollector();
         private readonly ReportExcelExportService _excel = new ReportExcelExportService();
         private readonly CadTableWriter _tables = new CadTableWriter();
+        private readonly TemplateRepository _templates = new TemplateRepository();
 
-        /// <summary>
-        /// Кабельный журнал → Excel и/или таблица в чертеже.
-        /// </summary>
         [CommandMethod("CABLEJOURNAL", CommandFlags.Modal)]
         public void CableJournal()
         {
@@ -58,16 +53,11 @@ namespace CablePlugin.Commands
             }
 
             if (mode == OutputMode.Drawing || mode == OutputMode.Both)
-            {
                 InsertJournalInDrawing(doc, db, ed, rows);
-            }
 
             ed.WriteMessage($"\n[CablePlugin] Строк журнала: {rows.Count}");
         }
 
-        /// <summary>
-        /// Ведомость объёмов (кабели + трубы/гофра).
-        /// </summary>
         [CommandMethod("CABLEBOM", CommandFlags.Modal)]
         public void CableBom()
         {
@@ -101,16 +91,11 @@ namespace CablePlugin.Commands
             }
 
             if (mode == OutputMode.Drawing || mode == OutputMode.Both)
-            {
                 InsertBomInDrawing(doc, db, ed, bom);
-            }
 
             ed.WriteMessage($"\n[CablePlugin] Позиций кабеля: {bom.Cables.Count}, труб/гофры: {bom.Pipes.Count}");
         }
 
-        /// <summary>
-        /// Таблица отходящих линий щита с коэффициентом спроса.
-        /// </summary>
         [CommandMethod("CABLEPANEL", CommandFlags.Modal)]
         public void CablePanel()
         {
@@ -180,16 +165,12 @@ namespace CablePlugin.Commands
             }
 
             if (mode == OutputMode.Drawing || mode == OutputMode.Both)
-            {
                 InsertPanelInDrawing(doc, db, ed, report);
-            }
 
             ed.WriteMessage(
                 $"\n[CablePlugin] Щит {report.PanelName}: фидеров={report.Feeders.Count}, " +
                 $"ΣI={report.SumCurrent:0.##}А, Iспрос={report.DemandCurrent:0.##}А");
         }
-
-        // ===== helpers =====
 
         private List<CableLine> LoadAllLines(Database db, Editor ed)
         {
@@ -203,14 +184,21 @@ namespace CablePlugin.Commands
             }
         }
 
+        private TemplateSet LoadTemplates(Database db)
+        {
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var set = _templates.Load(db, tr);
+                tr.Commit();
+                return set;
+            }
+        }
+
         private enum OutputMode { Cancel, Excel, Drawing, Both }
 
         private static OutputMode AskOutputMode(Editor ed, string what)
         {
-            var opts = new PromptKeywordOptions($"\nВывод {what} [Excel/Чертёж/Оба]")
-            {
-                AllowNone = true
-            };
+            var opts = new PromptKeywordOptions($"\nВывод {what} [Excel/Чертёж/Оба]") { AllowNone = true };
             opts.Keywords.Add("Excel");
             opts.Keywords.Add("Чертёж");
             opts.Keywords.Add("Оба");
@@ -222,9 +210,9 @@ namespace CablePlugin.Commands
                 return OutputMode.Excel;
 
             var k = res.StringResult ?? "Excel";
-            if (k.StartsWith("Ч", StringComparison.OrdinalIgnoreCase) || k.Equals("Drawing", StringComparison.OrdinalIgnoreCase))
+            if (k.StartsWith("Ч", StringComparison.OrdinalIgnoreCase))
                 return OutputMode.Drawing;
-            if (k.StartsWith("О", StringComparison.OrdinalIgnoreCase) || k.Equals("Both", StringComparison.OrdinalIgnoreCase))
+            if (k.StartsWith("О", StringComparison.OrdinalIgnoreCase))
                 return OutputMode.Both;
             return OutputMode.Excel;
         }
@@ -268,15 +256,16 @@ namespace CablePlugin.Commands
             var ppr = ed.GetPoint("\nТочка вставки таблицы журнала: ");
             if (ppr.Status != PromptStatus.OK) return;
 
+            var tpl = LoadTemplates(db).Journal;
+
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                 var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-                _tables.InsertJournalTable(db, tr, space, ppr.Value, rows);
+                _tables.InsertJournalTable(db, tr, space, ppr.Value, rows, tpl);
                 tr.Commit();
             }
-            ed.WriteMessage("\n[CablePlugin] Таблица журнала вставлена в чертёж.");
+            ed.WriteMessage($"\n[CablePlugin] Таблица журнала («{tpl?.Name}») вставлена.");
         }
 
         private void InsertBomInDrawing(
@@ -286,14 +275,16 @@ namespace CablePlugin.Commands
             var ppr = ed.GetPoint("\nТочка вставки ведомости: ");
             if (ppr.Status != PromptStatus.OK) return;
 
+            var tpl = LoadTemplates(db).Bom;
+
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-                _tables.InsertBomTable(db, tr, space, ppr.Value, bom);
+                _tables.InsertBomTable(db, tr, space, ppr.Value, bom, tpl);
                 tr.Commit();
             }
-            ed.WriteMessage("\n[CablePlugin] Ведомость вставлена в чертёж.");
+            ed.WriteMessage($"\n[CablePlugin] Ведомость («{tpl?.Name}») вставлена.");
         }
 
         private void InsertPanelInDrawing(
@@ -303,14 +294,16 @@ namespace CablePlugin.Commands
             var ppr = ed.GetPoint("\nТочка вставки таблицы щита: ");
             if (ppr.Status != PromptStatus.OK) return;
 
+            var tpl = LoadTemplates(db).Panel;
+
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-                _tables.InsertPanelTable(db, tr, space, ppr.Value, report);
+                _tables.InsertPanelTable(db, tr, space, ppr.Value, report, tpl);
                 tr.Commit();
             }
-            ed.WriteMessage("\n[CablePlugin] Таблица щита вставлена в чертёж.");
+            ed.WriteMessage($"\n[CablePlugin] Таблица щита («{tpl?.Name}») вставлена.");
         }
     }
 }
