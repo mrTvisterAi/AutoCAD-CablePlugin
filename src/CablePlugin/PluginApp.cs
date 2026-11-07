@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.Runtime;
 
 [assembly: ExtensionApplication(typeof(CablePlugin.PluginApp))]
 [assembly: CommandClass(typeof(CablePlugin.Commands.CableCommands))]
+[assembly: CommandClass(typeof(CablePlugin.Commands.ReportCommands))]
 
 namespace CablePlugin
 {
@@ -12,7 +13,9 @@ namespace CablePlugin
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             doc?.Editor.WriteMessage(
-                "\n[CablePlugin] Загружен. Команды: CABLEATTACH, CABLEEDIT, CABLEDICT, CABLEEXPORT, CABLEINFO, CABLERECALC, CABLEREMOVE");
+                "\n[CablePlugin] Загружен." +
+                "\n  Данные: CABLEATTACH, CABLEEDIT, CABLEDICT, CABLEINFO, CABLERECALC, CABLEREMOVE, CABLEEXPORT" +
+                "\n  Отчёты: CABLEJOURNAL, CABLEBOM, CABLEPANEL");
         }
 
         public void Terminate()
