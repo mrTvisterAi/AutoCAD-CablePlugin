@@ -19,9 +19,6 @@ namespace CablePlugin.Data
             WriteIndented = false
         };
 
-        /// <summary>
-        /// Загрузить таблицу из чертежа. Если нет — вернуть таблицу по умолчанию.
-        /// </summary>
         public List<PipeCorrespondence> Load(Database db, Transaction tr)
         {
             if (db == null || tr == null)
@@ -51,9 +48,6 @@ namespace CablePlugin.Data
             }
         }
 
-        /// <summary>
-        /// Сохранить таблицу в чертёж.
-        /// </summary>
         public void Save(Database db, Transaction tr, IList<PipeCorrespondence> table)
         {
             if (db == null || tr == null)
