@@ -37,19 +37,19 @@ namespace CablePlugin.Tests
         {
             var line = new CableLine
             {
-                ScaleFactor = 100, // 1:100, длины в мм → метры
+                ScaleFactor = 0.001, // чертёж в мм → метры
                 ReservePercent = 10,
                 AdditionalLength = 0,
                 RoundUpTo = 0.1,
-                Segments = { new CableSegment { Length = 12000 } } // 12 м при масштабе 100
+                Segments = { new CableSegment { Length = 12000 } } // 12 м
             };
 
             LengthCalculator.Calculate(line);
 
-            // 12000 * 100 = 1_200_000 (ошибка в логике масштаба?)
-            // В реальности ScaleFactor обычно 0.001 если чертёж в мм, или пользователь задаёт коэффициент перевода.
-            // Здесь проверяем формулу как есть.
-            Assert.True(line.TotalLength > 0);
+            // 12000 * 0.001 = 12
+            // 12 * 1.10 = 13.2 → округление до 13.2
+            Assert.Equal(12, line.GeometricLength);
+            Assert.Equal(13.2, line.TotalLength);
         }
 
         [Theory]
