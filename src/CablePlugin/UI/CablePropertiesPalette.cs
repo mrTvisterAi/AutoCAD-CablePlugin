@@ -15,9 +15,6 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace CablePlugin.UIHost
 {
-    /// <summary>
-    /// Палитра свойств кабеля: синхронизация с выделением в чертеже.
-    /// </summary>
     public static class CablePropertiesPalette
     {
         private static PaletteSet _palette;
@@ -33,7 +30,7 @@ namespace CablePlugin.UIHost
             EnsureCreated();
             _palette.Visible = true;
             SubscribeDocument(AcApp.DocumentManager.MdiActiveDocument);
-            RefreshFromSelection();
+            RefreshFromSelection(force: true);
         }
 
         public static void Toggle()
@@ -43,7 +40,7 @@ namespace CablePlugin.UIHost
             if (_palette.Visible)
             {
                 SubscribeDocument(AcApp.DocumentManager.MdiActiveDocument);
-                RefreshFromSelection();
+                RefreshFromSelection(force: true);
             }
         }
 
@@ -77,7 +74,7 @@ namespace CablePlugin.UIHost
             {
                 SubscribeDocument(e.Document);
                 if (_palette != null && _palette.Visible)
-                    RefreshFromSelection();
+                    RefreshFromSelection(force: true);
             };
         }
 
@@ -88,7 +85,7 @@ namespace CablePlugin.UIHost
             if (_subscribedDoc != null)
             {
                 try { _subscribedDoc.ImpliedSelectionChanged -= OnImpliedSelectionChanged; }
-                catch { /* disposed */ }
+                catch { }
             }
 
             _subscribedDoc = doc;
@@ -98,13 +95,15 @@ namespace CablePlugin.UIHost
         private static void OnImpliedSelectionChanged(object sender, EventArgs e)
         {
             if (_palette == null || !_palette.Visible) return;
-            if (_vm != null && _vm.IsDirty)
-                return; // не затирать несохранённые правки
-
-            RefreshFromSelection();
+            RefreshFromSelection(force: false);
         }
 
         public static void RefreshFromSelection()
+        {
+            RefreshFromSelection(force: true);
+        }
+
+        private static void RefreshFromSelection(bool force)
         {
             if (_vm == null) return;
 
@@ -130,6 +129,10 @@ namespace CablePlugin.UIHost
             {
                 id = ObjectId.Null;
             }
+
+            // Не затирать несохранённые правки, только если выбран тот же объект
+            if (!force && _vm.IsDirty && !id.IsNull && id == _currentId)
+                return;
 
             if (id.IsNull)
             {
@@ -210,7 +213,17 @@ namespace CablePlugin.UIHost
                     Repo.Save(_currentId, updated, tr);
                     tr.Commit();
 
-                    _vm.LoadFrom(updated, _currentId.Handle.ToString(), "Сохранено");
+                    // Перечитать с диска транзакции — проверка persistence
+                    using (var tr2 = db.TransactionManager.StartTransaction())
+                    {
+                        var reloaded = Repo.Load(_currentId, tr2);
+                        tr2.Commit();
+                        if (reloaded != null)
+                            _vm.LoadFrom(reloaded, _currentId.Handle.ToString(), "Сохранено");
+                        else
+                            _vm.LoadFrom(updated, _currentId.Handle.ToString(), "Сохранено (reload пуст)");
+                    }
+
                     _vm.MarkSaved();
                     doc.Editor.WriteMessage(
                         $"\n[CablePlugin] Свойства сохранены: {updated.Cable?.DisplayName}, L={updated.TotalLength:0.###} м");
