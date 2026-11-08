@@ -4,16 +4,49 @@ using CablePlugin.Core.Models;
 
 namespace CablePlugin.Core.Services
 {
-    /// <summary>
-    /// Расчёт итоговой длины кабеля.
-    /// </summary>
     public static class LengthCalculator
     {
         /// <summary>
-        /// Рассчитывает итоговую длину линии.
+        /// Подтянуть длины сегментов к актуальной длине полилинии.
+        /// Один сегмент — полностью; несколько — пропорционально.
         /// </summary>
-        /// <param name="line">Кабельная линия</param>
-        /// <param name="geometricLengthFromPolyline">Геометрическая длина полилинии в единицах чертежа (если Segments пусты)</param>
+        public static void SyncSegmentsFromPolyline(CableLine line, double polylineLength)
+        {
+            if (line == null || polylineLength < 0) return;
+
+            line.GeometricLength = polylineLength;
+
+            if (line.Segments == null || line.Segments.Count == 0)
+            {
+                line.Segments = new System.Collections.Generic.List<CableSegment>
+                {
+                    new CableSegment { LayingMethod = "Гофра", Length = polylineLength, IsPipeDiameterAuto = true }
+                };
+                return;
+            }
+
+            if (line.Segments.Count == 1)
+            {
+                line.Segments[0].Length = polylineLength;
+                return;
+            }
+
+            double oldSum = line.Segments.Sum(s => s.Length);
+            if (oldSum <= 1e-9)
+            {
+                // Равномерно
+                double each = polylineLength / line.Segments.Count;
+                foreach (var s in line.Segments)
+                    s.Length = each;
+            }
+            else
+            {
+                double k = polylineLength / oldSum;
+                foreach (var s in line.Segments)
+                    s.Length = Math.Round(s.Length * k, 6);
+            }
+        }
+
         public static void Calculate(CableLine line, double? geometricLengthFromPolyline = null)
         {
             if (line == null) throw new ArgumentNullException(nameof(line));
@@ -22,7 +55,6 @@ namespace CablePlugin.Core.Services
 
             if (line.Segments != null && line.Segments.Count > 0)
             {
-                // Приоритет — сумма длин сегментов
                 baseLength = line.Segments.Sum(s => s.Length);
             }
             else if (geometricLengthFromPolyline.HasValue)
@@ -34,28 +66,17 @@ namespace CablePlugin.Core.Services
                 baseLength = line.GeometricLength;
             }
 
-            // Применяем масштаб
             double scaledLength = baseLength * (line.ScaleFactor <= 0 ? 1.0 : line.ScaleFactor);
-
-            // Запас в процентах
             double withReserve = scaledLength * (1.0 + line.ReservePercent / 100.0);
-
-            // Дополнительная длина на опуски/подъёмы
             double total = withReserve + line.AdditionalLength;
 
-            // Округление вверх
             if (line.RoundUpTo > 0)
-            {
                 total = Math.Ceiling(total / line.RoundUpTo) * line.RoundUpTo;
-            }
 
             line.GeometricLength = baseLength;
             line.TotalLength = Math.Round(total, 3);
         }
 
-        /// <summary>
-        /// Быстрый расчёт без изменения объекта.
-        /// </summary>
         public static double CalculateTotal(double baseLength, double scaleFactor, double reservePercent,
             double additionalLength, double roundUpTo)
         {
