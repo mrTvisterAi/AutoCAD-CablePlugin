@@ -5,7 +5,7 @@ using System.Windows.Data;
 namespace CablePlugin.UI.Converters
 {
     /// <summary>
-    /// Парсинг double с поддержкой точки и запятой (0.1 и 0,01).
+    /// Парсинг double: точка и запятая. Пока ввод неполный ("1.", "0,") — не трогаем binding.
     /// </summary>
     public class FlexibleDoubleConverter : IValueConverter
     {
@@ -13,23 +13,43 @@ namespace CablePlugin.UI.Converters
         {
             if (value == null) return string.Empty;
             if (value is double d)
-                return d.ToString("0.##########", CultureInfo.CurrentCulture);
+                return Format(d);
             if (value is float f)
-                return f.ToString("0.##########", CultureInfo.CurrentCulture);
+                return Format(f);
             return value.ToString();
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            var s = value as string;
-            if (string.IsNullOrWhiteSpace(s))
+            var s = (value as string)?.Trim() ?? string.Empty;
+            if (s.Length == 0)
                 return 0.0;
 
-            s = s.Trim().Replace(',', '.');
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
+            // Промежуточный ввод — не сбрасывать точку/запятую
+            if (IsIncompleteNumber(s))
+                return Binding.DoNothing;
+
+            var normalized = s.Replace(',', '.');
+            if (double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
                 return result;
 
-            return 0.0;
+            return Binding.DoNothing;
+        }
+
+        private static string Format(double d)
+        {
+            // Без лишних нулей; десятичный разделитель — текущей культуры (обычно запятая в RU)
+            return d.ToString("0.##########", CultureInfo.CurrentCulture);
+        }
+
+        internal static bool IsIncompleteNumber(string s)
+        {
+            if (s == "-" || s == "." || s == "," || s == "-." || s == "-,")
+                return true;
+            if (s.EndsWith(".") || s.EndsWith(","))
+                return true;
+            // "1." already covered; also "1.0e" style skip
+            return false;
         }
     }
 
@@ -45,15 +65,18 @@ namespace CablePlugin.UI.Converters
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            var s = value as string;
-            if (string.IsNullOrWhiteSpace(s))
+            var s = (value as string)?.Trim() ?? string.Empty;
+            if (s.Length == 0)
                 return null;
 
-            s = s.Trim().Replace(',', '.');
-            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
+            if (FlexibleDoubleConverter.IsIncompleteNumber(s))
+                return Binding.DoNothing;
+
+            var normalized = s.Replace(',', '.');
+            if (double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var result))
                 return (double?)result;
 
-            return null;
+            return Binding.DoNothing;
         }
     }
 }
