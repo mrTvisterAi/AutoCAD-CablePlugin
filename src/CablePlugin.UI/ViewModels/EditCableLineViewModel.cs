@@ -26,6 +26,8 @@ namespace CablePlugin.UI.ViewModels
         private double _additionalLength;
         private double _scaleFactor = 1.0;
         private double _roundUpTo = 1.0;
+        private bool _syncLengthFromPolyline = true;
+        private bool _isAluminum;
         private double? _powerKw;
         private double _cosPhi = 0.85;
         private double _voltage = 380;
@@ -44,14 +46,7 @@ namespace CablePlugin.UI.ViewModels
             Segments = new ObservableCollection<CableSegmentViewModel>();
             LayingMethods = new ObservableCollection<string>
             {
-                "Лоток",
-                "Кабель-канал",
-                "Гофра",
-                "Труба",
-                "Труба ПВХ",
-                "Металлорукав",
-                "В земле",
-                "Открыто"
+                "Лоток", "Кабель-канал", "Гофра", "Труба", "Труба ПВХ", "Металлорукав", "В земле", "Открыто"
             };
 
             AddSegmentCommand = new RelayCommand(_ => AddSegment());
@@ -82,6 +77,20 @@ namespace CablePlugin.UI.ViewModels
         public double AdditionalLength { get => _additionalLength; set { _additionalLength = value; OnPropertyChanged(); } }
         public double ScaleFactor { get => _scaleFactor; set { _scaleFactor = value; OnPropertyChanged(); } }
         public double RoundUpTo { get => _roundUpTo; set { _roundUpTo = value; OnPropertyChanged(); } }
+
+        public bool SyncLengthFromPolyline
+        {
+            get => _syncLengthFromPolyline;
+            set { _syncLengthFromPolyline = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>false = медь (по умолчанию), true = алюминий.</summary>
+        public bool IsAluminum
+        {
+            get => _isAluminum;
+            set { _isAluminum = value; OnPropertyChanged(); }
+        }
+
         public double? PowerKw { get => _powerKw; set { _powerKw = value; OnPropertyChanged(); } }
         public double CosPhi { get => _cosPhi; set { _cosPhi = value; OnPropertyChanged(); } }
         public double Voltage { get => _voltage; set { _voltage = value; OnPropertyChanged(); } }
@@ -100,9 +109,7 @@ namespace CablePlugin.UI.ViewModels
         public ICommand OkCommand { get; }
         public ICommand CancelCommand { get; }
 
-        /// <summary>true = OK, false = Cancel</summary>
         public bool? DialogResult { get; private set; }
-
         public event Action RequestClose;
 
         public void LoadFrom(CableLine line)
@@ -125,6 +132,8 @@ namespace CablePlugin.UI.ViewModels
             AdditionalLength = line.AdditionalLength;
             ScaleFactor = line.ScaleFactor <= 0 ? 1.0 : line.ScaleFactor;
             RoundUpTo = line.RoundUpTo;
+            SyncLengthFromPolyline = line.SyncLengthFromPolyline;
+            IsAluminum = line.IsAluminum;
             PowerKw = line.PowerKw;
             CosPhi = line.CosPhi;
             Voltage = line.Voltage;
@@ -165,6 +174,8 @@ namespace CablePlugin.UI.ViewModels
             line.AdditionalLength = AdditionalLength;
             line.ScaleFactor = ScaleFactor;
             line.RoundUpTo = RoundUpTo;
+            line.SyncLengthFromPolyline = SyncLengthFromPolyline;
+            line.Conductor = IsAluminum ? ConductorMaterial.Aluminum : ConductorMaterial.Copper;
             line.PowerKw = PowerKw;
             line.CosPhi = CosPhi;
             line.Voltage = Voltage;
@@ -198,7 +209,7 @@ namespace CablePlugin.UI.ViewModels
         private void ApplyAutoPipe()
         {
             var temp = ToModel();
-            _pipeSelector.ApplyToLine(temp);
+            _pipeSelector.ApplyToLine(temp, forceAll: true);
             for (int i = 0; i < Segments.Count && i < temp.Segments.Count; i++)
             {
                 Segments[i].PipeDiameter = temp.Segments[i].PipeDiameter;
