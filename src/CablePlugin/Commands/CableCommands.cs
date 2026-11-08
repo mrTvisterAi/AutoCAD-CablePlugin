@@ -12,9 +12,6 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
 
 namespace CablePlugin.Commands
 {
-    /// <summary>
-    /// Основные команды плагина (этапы 1–3).
-    /// </summary>
     public class CableCommands
     {
         private readonly CableLineRepository _lineRepo = new CableLineRepository();
@@ -58,6 +55,8 @@ namespace CablePlugin.Commands
                 ReservePercent = 20,
                 ScaleFactor = 1.0,
                 RoundUpTo = 1.0,
+                SyncLengthFromPolyline = true,
+                Conductor = ConductorMaterial.Copper,
                 GeometricLength = firstGeomLen,
                 Voltage = 380,
                 Phases = 3,
@@ -87,15 +86,12 @@ namespace CablePlugin.Commands
                     line.Id = Guid.NewGuid();
 
                     double geomLen = PolylineLengthHelper.GetLength(id, tr);
-                    line.GeometricLength = geomLen;
+                    if (line.SyncLengthFromPolyline)
+                        LengthCalculator.SyncSegmentsFromPolyline(line, geomLen);
+                    else
+                        line.GeometricLength = geomLen;
 
-                    if (line.Segments != null && line.Segments.Count == 1)
-                    {
-                        if (Math.Abs(line.Segments[0].Length - firstGeomLen) < 1e-6 || line.Segments[0].Length <= 0)
-                            line.Segments[0].Length = geomLen * (line.ScaleFactor <= 0 ? 1.0 : line.ScaleFactor);
-                    }
-
-                    pipeSelector.ApplyToLine(line);
+                    pipeSelector.ApplyToLine(line, forceAll: true);
                     LengthCalculator.Calculate(line);
                     _electrical.Calculate(line);
                     _lineRepo.Save(id, line, tr);
@@ -103,7 +99,8 @@ namespace CablePlugin.Commands
 
                     ed.WriteMessage(
                         $"\n  {line.Cable.DisplayName} | L={line.TotalLength:0.###} м | " +
-                        $"I={line.Current:0.##} А | ΔU={line.VoltageDropPercent:0.##}% | АВ={line.RecommendedBreaker}");
+                        $"I={line.Current:0.##} А | ΔU={line.VoltageDropPercent:0.##}% | АВ={line.RecommendedBreaker} | " +
+                        (line.IsAluminum ? "Al" : "Cu"));
                 }
 
                 tr.Commit();
@@ -124,15 +121,16 @@ namespace CablePlugin.Commands
 
             CableLine existing;
             List<PipeCorrespondence> pipeTable;
+            double geomLen;
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 existing = _lineRepo.Load(id, tr);
                 pipeTable = _pipeRepo.Load(db, tr);
+                geomLen = PolylineLengthHelper.GetLength(id, tr);
 
                 if (existing == null)
                 {
-                    double geomLen = PolylineLengthHelper.GetLength(id, tr);
                     existing = new CableLine
                     {
                         Cable = new CableInfo { Mark = "ВВГнг(А)-LS", Cores = 3, Section = 1.5 },
@@ -143,8 +141,16 @@ namespace CablePlugin.Commands
                         ReservePercent = 20,
                         ScaleFactor = 1.0,
                         RoundUpTo = 1.0,
+                        SyncLengthFromPolyline = true,
                         GeometricLength = geomLen
                     };
+                }
+                else if (existing.SyncLengthFromPolyline)
+                {
+                    // Показать актуальную геометрию в диалоге
+                    LengthCalculator.SyncSegmentsFromPolyline(existing, geomLen);
+                    LengthCalculator.Calculate(existing);
+                    _electrical.Calculate(existing);
                 }
 
                 tr.Commit();
@@ -161,8 +167,12 @@ namespace CablePlugin.Commands
             using (doc.LockDocument())
             using (var tr = db.TransactionManager.StartTransaction())
             {
+                geomLen = PolylineLengthHelper.GetLength(id, tr);
+                if (edited.SyncLengthFromPolyline)
+                    LengthCalculator.SyncSegmentsFromPolyline(edited, geomLen);
+
                 var pipeSelector = new PipeSelector(pipeTable);
-                pipeSelector.ApplyToLine(edited);
+                pipeSelector.ApplyToLine(edited, forceAll: false);
                 LengthCalculator.Calculate(edited);
                 _electrical.Calculate(edited);
                 _lineRepo.Save(id, edited, tr);
@@ -170,7 +180,8 @@ namespace CablePlugin.Commands
 
                 ed.WriteMessage(
                     $"\n[CablePlugin] Сохранено: {edited.Cable?.DisplayName}, L={edited.TotalLength:0.###} м, " +
-                    $"I={edited.Current:0.##} А, ΔU={edited.VoltageDropPercent:0.##}%, АВ={edited.RecommendedBreaker}");
+                    $"I={edited.Current:0.##} А, ΔU={edited.VoltageDropPercent:0.##}%, АВ={edited.RecommendedBreaker}, " +
+                    (edited.IsAluminum ? "Al" : "Cu"));
             }
         }
 
@@ -204,13 +215,41 @@ namespace CablePlugin.Commands
                 tr.Commit();
             }
 
-            ed.WriteMessage($"\n[CablePlugin] Таблица труб сохранена в чертёж. Записей: {updated.Count}");
+            ed.WriteMessage($"\n[CablePlugin] Таблица труб сохранена. Записей: {updated.Count}");
+
+            // Предложить переприменить диаметры ко всем линиям
+            var pko = new PromptKeywordOptions("\nОбновить ∅ гофры/труб на всех линиях по новой таблице? [Да/Нет]")
+            {
+                AllowNone = true
+            };
+            pko.Keywords.Add("Да");
+            pko.Keywords.Add("Нет");
+            pko.Keywords.Default = "Да";
+            var pkr = ed.GetKeywords(pko);
+            if (pkr.Status == PromptStatus.Cancel) return;
+            if (pkr.Status == PromptStatus.OK && pkr.StringResult.StartsWith("Н", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            using (doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var pipeSelector = new PipeSelector(updated);
+                var items = _collector.CollectFromModelSpace(db, tr);
+                int n = 0;
+                foreach (var item in items)
+                {
+                    var line = item.Line;
+                    pipeSelector.ApplyToLine(line, forceAll: true);
+                    LengthCalculator.Calculate(line);
+                    _electrical.Calculate(line);
+                    _lineRepo.Save(item.EntityId, line, tr);
+                    n++;
+                }
+                tr.Commit();
+                ed.WriteMessage($"\n[CablePlugin] Диаметры обновлены на линиях: {n}");
+            }
         }
 
-        /// <summary>
-        /// Экспорт кабельных линий в Excel (.xlsx).
-        /// Выбор объектов или Enter — все линии из Model Space.
-        /// </summary>
         [CommandMethod("CABLEEXPORT", CommandFlags.Modal | CommandFlags.UsePickSet)]
         public void CableExport()
         {
@@ -226,7 +265,6 @@ namespace CablePlugin.Commands
                 MessageForAdding = "\nВыберите линии для экспорта (Enter — все из модели): ",
                 AllowDuplicates = false
             };
-            peo.KeywordInput += (s, e) => { };
 
             var filter = new SelectionFilter(new[]
             {
@@ -238,14 +276,9 @@ namespace CablePlugin.Commands
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 if (selRes.Status == PromptStatus.OK && selRes.Value != null && selRes.Value.Count > 0)
-                {
                     lines = _collector.LoadMany(selRes.Value.GetObjectIds(), tr);
-                }
                 else
-                {
-                    // Enter / пустой выбор — все линии модели
                     lines = _collector.CollectFromModelSpace(db, tr).Select(x => x.Line).ToList();
-                }
                 tr.Commit();
             }
 
@@ -266,30 +299,22 @@ namespace CablePlugin.Commands
                     FileName = "CableLines.xlsx",
                     AddExtension = true
                 };
-
                 if (sfd.ShowDialog() != true)
                 {
                     ed.WriteMessage("\n[CablePlugin] Экспорт отменён.");
                     return;
                 }
-
                 path = sfd.FileName;
             }
             catch
             {
-                // Fallback без WPF dialog
                 var opts = new PromptSaveFileOptions("\nФайл Excel")
                 {
                     DialogCaption = "Экспорт кабельных линий",
-                    Filter = "Excel (*.xlsx)|*.xlsx",
-                    FilterIndex = 0
+                    Filter = "Excel (*.xlsx)|*.xlsx"
                 };
                 var pfr = ed.GetFileNameForSave(opts);
-                if (pfr.Status != PromptStatus.OK)
-                {
-                    ed.WriteMessage("\n[CablePlugin] Экспорт отменён.");
-                    return;
-                }
+                if (pfr.Status != PromptStatus.OK) return;
                 path = pfr.StringResult;
                 if (!path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
                     path += ".xlsx";
@@ -298,8 +323,7 @@ namespace CablePlugin.Commands
             try
             {
                 _excel.Export(lines, path);
-                ed.WriteMessage($"\n[CablePlugin] Экспортировано линий: {lines.Count}");
-                ed.WriteMessage($"\n  Файл: {path}");
+                ed.WriteMessage($"\n[CablePlugin] Экспортировано линий: {lines.Count}\n  Файл: {path}");
             }
             catch (System.Exception ex)
             {
@@ -323,35 +347,22 @@ namespace CablePlugin.Commands
                 var line = _lineRepo.Load(id, tr);
                 if (line == null)
                 {
-                    ed.WriteMessage("\nНа объекте нет данных кабеля. Используйте CABLEATTACH или CABLEEDIT.");
+                    ed.WriteMessage("\nНа объекте нет данных кабеля.");
                     tr.Commit();
                     return;
                 }
 
                 ed.WriteMessage("\n========== Данные кабельной линии ==========");
                 ed.WriteMessage($"\n  Группа:     {line.GroupName}");
-                ed.WriteMessage($"\n  От:         {line.From}");
-                ed.WriteMessage($"\n  До:         {line.To}");
-                ed.WriteMessage($"\n  Кабель:     {line.Cable?.DisplayName} x{line.Cable?.CableCount}");
+                ed.WriteMessage($"\n  От / До:    {line.From} → {line.To}");
+                ed.WriteMessage($"\n  Кабель:     {line.Cable?.DisplayName} x{line.Cable?.CableCount} ({(line.IsAluminum ? "Al" : "Cu")})");
                 ed.WriteMessage($"\n  Запас:      {line.ReservePercent}% + {line.AdditionalLength} м");
                 ed.WriteMessage($"\n  Длина геом: {line.GeometricLength:0.###} м");
                 ed.WriteMessage($"\n  Длина итог: {line.TotalLength:0.###} м");
                 ed.WriteMessage($"\n  Ток:        {line.Current:0.##} А");
                 ed.WriteMessage($"\n  ΔU:         {line.VoltageDropPercent:0.##} %");
                 ed.WriteMessage($"\n  АВ:         {line.RecommendedBreaker}");
-
-                if (line.Segments != null && line.Segments.Count > 0)
-                {
-                    ed.WriteMessage("\n  --- Участки прокладки ---");
-                    int i = 1;
-                    foreach (var s in line.Segments)
-                    {
-                        var pipe = s.PipeDiameter.HasValue ? $", ∅{s.PipeDiameter} мм" : "";
-                        ed.WriteMessage($"\n  {i}. {s.LayingMethod}: {s.Length:0.###} м{pipe}");
-                        i++;
-                    }
-                }
-
+                ed.WriteMessage($"\n  Sync L:     {line.SyncLengthFromPolyline}");
                 ed.WriteMessage("\n============================================");
                 tr.Commit();
             }
@@ -384,15 +395,22 @@ namespace CablePlugin.Commands
                     var line = _lineRepo.Load(id, tr);
                     if (line == null) continue;
 
-                    line.GeometricLength = PolylineLengthHelper.GetLength(id, tr);
-                    pipeSelector.ApplyToLine(line);
+                    double geom = PolylineLengthHelper.GetLength(id, tr);
+
+                    // Главный фикс: обновить длины сегментов с полилинии
+                    if (line.SyncLengthFromPolyline)
+                        LengthCalculator.SyncSegmentsFromPolyline(line, geom);
+                    else
+                        line.GeometricLength = geom;
+
+                    pipeSelector.ApplyToLine(line, forceAll: false);
                     LengthCalculator.Calculate(line);
                     _electrical.Calculate(line);
                     _lineRepo.Save(id, line, tr);
                     count++;
 
                     ed.WriteMessage(
-                        $"\n  {line.Cable?.DisplayName}: L={line.TotalLength:0.###} м, " +
+                        $"\n  {line.Cable?.DisplayName}: геом={geom:0.###} → L={line.TotalLength:0.###} м, " +
                         $"I={line.Current:0.##} А, ΔU={line.VoltageDropPercent:0.##}%, АВ={line.RecommendedBreaker}");
                 }
 
