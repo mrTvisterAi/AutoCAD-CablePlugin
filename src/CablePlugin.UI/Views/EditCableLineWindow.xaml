@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:CablePlugin.UI.Converters"
         Title="Кабельная линия"
-        Height="640" Width="820"
-        MinHeight="520" MinWidth="700"
+        Height="680" Width="820"
+        MinHeight="540" MinWidth="700"
         WindowStartupLocation="CenterScreen"
         Background="#F5F5F5">
   <Window.Resources>
@@ -67,15 +67,20 @@
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Text="Марка:" Style="{StaticResource Label}" Grid.Column="0"/>
         <TextBox Text="{Binding Mark, UpdateSourceTrigger=PropertyChanged}" Grid.Column="1" Margin="0,2,12,2"/>
         <TextBlock Text="Жилы:" Style="{StaticResource Label}" Grid.Column="2"/>
-        <TextBox Text="{Binding Cores, UpdateSourceTrigger=PropertyChanged}" Grid.Column="3" Margin="0,2,12,2"/>
+        <TextBox Text="{Binding Cores, UpdateSourceTrigger=LostFocus}" Grid.Column="3" Margin="0,2,12,2"/>
         <TextBlock Text="Сечение:" Style="{StaticResource Label}" Grid.Column="4"/>
-        <TextBox Text="{Binding Section, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Column="5" Margin="0,2,12,2"/>
+        <TextBox Text="{Binding Section, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}"
+                Grid.Column="5" Margin="0,2,12,2"
+                ToolTip="Например 1.5 или 1,5"/>
         <TextBlock Text="Кол-во:" Style="{StaticResource Label}" Grid.Column="6"/>
-        <TextBox Text="{Binding CableCount, UpdateSourceTrigger=PropertyChanged}" Grid.Column="7"/>
+        <TextBox Text="{Binding CableCount, UpdateSourceTrigger=LostFocus}" Grid.Column="7" Margin="0,2,8,2"/>
+        <CheckBox Content="Алюминий" IsChecked="{Binding IsAluminum}" Grid.Column="8"
+                  VerticalAlignment="Center" ToolTip="Снято = медь (по умолчанию). Влияет на ΔU (ρ)."/>
       </Grid>
     </GroupBox>
 
@@ -97,7 +102,6 @@
                   SelectionMode="Single"
                   Margin="0,0,0,8">
           <DataGrid.Columns>
-            <!-- ComboBox через Template — иначе ItemsSource на колонке не видит LayingMethods -->
             <DataGridTemplateColumn Header="Способ прокладки" Width="160">
               <DataGridTemplateColumn.CellTemplate>
                 <DataTemplate>
@@ -106,8 +110,7 @@
               </DataGridTemplateColumn.CellTemplate>
               <DataGridTemplateColumn.CellEditingTemplate>
                 <DataTemplate>
-                  <ComboBox IsEditable="True"
-                            IsTextSearchEnabled="True"
+                  <ComboBox IsEditable="True" IsTextSearchEnabled="True"
                             ItemsSource="{Binding DataContext.LayingMethods, RelativeSource={RelativeSource AncestorType=Window}}"
                             Text="{Binding LayingMethod, UpdateSourceTrigger=PropertyChanged}"
                             SelectedItem="{Binding LayingMethod, UpdateSourceTrigger=PropertyChanged}"/>
@@ -115,10 +118,10 @@
               </DataGridTemplateColumn.CellEditingTemplate>
             </DataGridTemplateColumn>
             <DataGridTextColumn Header="Длина, м"
-                                Binding="{Binding Length, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}"
+                                Binding="{Binding Length, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}"
                                 Width="90"/>
             <DataGridTextColumn Header="∅ трубы, мм"
-                                Binding="{Binding PipeDiameter, Converter={StaticResource NullDblConv}, UpdateSourceTrigger=PropertyChanged}"
+                                Binding="{Binding PipeDiameter, Converter={StaticResource NullDblConv}, UpdateSourceTrigger=LostFocus}"
                                 Width="100"/>
             <DataGridCheckBoxColumn Header="Авто ∅" Binding="{Binding IsPipeDiameterAuto, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
             <DataGridTextColumn Header="Примечание" Binding="{Binding Note, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
@@ -151,21 +154,26 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
 
           <TextBlock Text="Запас, %:" Style="{StaticResource Label}" Grid.Row="0" Grid.Column="0"/>
-          <TextBox Text="{Binding ReservePercent, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="0" Grid.Column="1" Margin="0,2,12,2"/>
+          <TextBox Text="{Binding ReservePercent, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="0" Grid.Column="1" Margin="0,2,12,2"/>
           <TextBlock Text="Доп. длина, м:" Style="{StaticResource Label}" Grid.Row="0" Grid.Column="2"/>
-          <TextBox Text="{Binding AdditionalLength, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="0" Grid.Column="3"/>
+          <TextBox Text="{Binding AdditionalLength, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="0" Grid.Column="3"/>
 
           <TextBlock Text="Масштаб:" Style="{StaticResource Label}" Grid.Row="1" Grid.Column="0"/>
-          <TextBox Text="{Binding ScaleFactor, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}"
+          <TextBox Text="{Binding ScaleFactor, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}"
                   Grid.Row="1" Grid.Column="1" Margin="0,2,12,2"
-                  ToolTip="Можно 0.1, 0.01, 0,001 (точка или запятая)"/>
+                  ToolTip="0.1 / 0,01 / 0.001 — точка или запятая"/>
           <TextBlock Text="Округление до:" Style="{StaticResource Label}" Grid.Row="1" Grid.Column="2"/>
-          <TextBox Text="{Binding RoundUpTo, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="1" Grid.Column="3"/>
+          <TextBox Text="{Binding RoundUpTo, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="1" Grid.Column="3"/>
 
-          <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,8,0,0"
+          <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,6,0,0"
+                    Content="Длина с полилинии (CABLERECALC обновляет участки)"
+                    IsChecked="{Binding SyncLengthFromPolyline}"/>
+
+          <TextBlock Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="4" Margin="0,8,0,0"
                      FontWeight="SemiBold"
                      Text="{Binding TotalLength, StringFormat='Итоговая длина: {0:0.###} м'}"/>
         </Grid>
@@ -186,14 +194,14 @@
           </Grid.RowDefinitions>
 
           <TextBlock Text="P, кВт:" Style="{StaticResource Label}" Grid.Row="0" Grid.Column="0"/>
-          <TextBox Text="{Binding PowerKw, Converter={StaticResource NullDblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="0" Grid.Column="1" Margin="0,2,12,2"/>
+          <TextBox Text="{Binding PowerKw, Converter={StaticResource NullDblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="0" Grid.Column="1" Margin="0,2,12,2"/>
           <TextBlock Text="cos φ:" Style="{StaticResource Label}" Grid.Row="0" Grid.Column="2"/>
-          <TextBox Text="{Binding CosPhi, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="0" Grid.Column="3"/>
+          <TextBox Text="{Binding CosPhi, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="0" Grid.Column="3"/>
 
           <TextBlock Text="U, В:" Style="{StaticResource Label}" Grid.Row="1" Grid.Column="0"/>
-          <TextBox Text="{Binding Voltage, Converter={StaticResource DblConv}, UpdateSourceTrigger=PropertyChanged}" Grid.Row="1" Grid.Column="1" Margin="0,2,12,2"/>
+          <TextBox Text="{Binding Voltage, Converter={StaticResource DblConv}, UpdateSourceTrigger=LostFocus}" Grid.Row="1" Grid.Column="1" Margin="0,2,12,2"/>
           <TextBlock Text="Фазы:" Style="{StaticResource Label}" Grid.Row="1" Grid.Column="2"/>
-          <TextBox Text="{Binding Phases, UpdateSourceTrigger=PropertyChanged}" Grid.Row="1" Grid.Column="3"/>
+          <TextBox Text="{Binding Phases, UpdateSourceTrigger=LostFocus}" Grid.Row="1" Grid.Column="3"/>
 
           <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0"
                      Text="{Binding Current, StringFormat='I = {0:0.##} А'}"/>
@@ -212,6 +220,8 @@
         <Run Text="{Binding VoltageDropPercent, Mode=OneWay, StringFormat='ΔU={0:0.##}%; '}"/>
         <Run Text="АВ "/>
         <Run FontWeight="SemiBold" Text="{Binding RecommendedBreaker, Mode=OneWay}"/>
+        <Run Text="  "/>
+        <Run Text="{Binding IsAluminum, Mode=OneWay, StringFormat='({0})'}"/>
       </TextBlock>
     </Border>
 
