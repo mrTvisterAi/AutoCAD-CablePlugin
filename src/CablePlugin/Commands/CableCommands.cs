@@ -147,7 +147,6 @@ namespace CablePlugin.Commands
                 }
                 else if (existing.SyncLengthFromPolyline)
                 {
-                    // Показать актуальную геометрию в диалоге
                     LengthCalculator.SyncSegmentsFromPolyline(existing, geomLen);
                     LengthCalculator.Calculate(existing);
                     _electrical.Calculate(existing);
@@ -217,7 +216,6 @@ namespace CablePlugin.Commands
 
             ed.WriteMessage($"\n[CablePlugin] Таблица труб сохранена. Записей: {updated.Count}");
 
-            // Предложить переприменить диаметры ко всем линиям
             var pko = new PromptKeywordOptions("\nОбновить ∅ гофры/труб на всех линиях по новой таблице? [Да/Нет]")
             {
                 AllowNone = true
@@ -242,7 +240,8 @@ namespace CablePlugin.Commands
                     pipeSelector.ApplyToLine(line, forceAll: true);
                     LengthCalculator.Calculate(line);
                     _electrical.Calculate(line);
-                    _lineRepo.Save(item.EntityId, line, tr);
+                    // CollectFromModelSpace возвращает (ObjectId Id, CableLine Line)
+                    _lineRepo.Save(item.Id, line, tr);
                     n++;
                 }
                 tr.Commit();
@@ -397,7 +396,6 @@ namespace CablePlugin.Commands
 
                     double geom = PolylineLengthHelper.GetLength(id, tr);
 
-                    // Главный фикс: обновить длины сегментов с полилинии
                     if (line.SyncLengthFromPolyline)
                         LengthCalculator.SyncSegmentsFromPolyline(line, geom);
                     else
