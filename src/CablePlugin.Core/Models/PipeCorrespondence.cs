@@ -1,27 +1,25 @@
+using System.Globalization;
+
 namespace CablePlugin.Core.Models
 {
-    /// <summary>
-    /// Запись таблицы соответствия: марка + жилы + сечение → диаметр трубы/гофры.
-    /// </summary>
     public class PipeCorrespondence
     {
         public string Mark { get; set; } = string.Empty;
         public int Cores { get; set; }
         public double Section { get; set; }
-
-        /// <summary>
-        /// Диаметр трубы/гофры, мм.
-        /// </summary>
         public double Diameter { get; set; }
 
-        /// <summary>
-        /// Ключ для быстрого поиска.
-        /// </summary>
         public string Key => BuildKey(Mark, Cores, Section);
 
         public static string BuildKey(string mark, int cores, double section)
         {
-            return $"{mark?.Trim().ToUpperInvariant()}|{cores}|{section:0.###}";
+            // Инвариантная культура — иначе 1.5 и 1,5 дают разные ключи
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|{1}|{2:0.###}",
+                (mark ?? string.Empty).Trim().ToUpperInvariant(),
+                cores,
+                section);
         }
 
         public PipeCorrespondence Clone()
